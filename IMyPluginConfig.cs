@@ -9,5 +9,7 @@ namespace TorchPlugin
     internal interface IMyPluginConfig
     {
         bool Enabled { get; set; }
+        double TimerSeconds { get; set; }
+        string BlockRules { get; set; }
     }
 }

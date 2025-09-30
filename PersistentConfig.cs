@@ -76,7 +76,7 @@ namespace TorchPlugin
 
             logger.Info($"Configuration file does not exist at {path} - Creating default...");
 
-            var config = new PersistentConfig<T>(default, path);
+            var config = new PersistentConfig<T>(new T(), path);
 
             config.SaveNow();
 

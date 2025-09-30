@@ -13,6 +13,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" SharedSizeGroup="Labels" />
             <ColumnDefinition Width="Auto" SharedSizeGroup="Checkboxes" />
+            <ColumnDefinition Width="Auto" SharedSizeGroup="Descriptions" />
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" SharedSizeGroup="Buttons" />
         </Grid.ColumnDefinitions>
@@ -21,15 +22,25 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <!-- TODO: Add row definitions if you start using new rows -->
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Title -->
-        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="4" Text="Missing Block Notifier" FontWeight="Bold" FontSize="16" VerticalAlignment="Center" Margin="5" />
+        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5" Text="Missing Block Notifier" FontWeight="Bold" FontSize="16" VerticalAlignment="Center" Margin="5" />
 
         <!-- Enabled -->
         <TextBlock Grid.Row="1" Grid.Column="0" Text="Enabled" VerticalAlignment="Center" Margin="5" />
-        <CheckBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Name="Enabled" IsChecked="{Binding Enabled}" Margin="5" />
+        <CheckBox Grid.Row="1" Grid.Column="1" Name="Enabled" HorizontalAlignment="Center" IsChecked="{Binding Enabled}" Margin="5" ToolTip="Notify players in chat?" />
+        <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3" VerticalAlignment="Center" Text="Enables/Disables the chat notifications about missing blocks" Margin="5" />
+        
+        <!-- Timer -->
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Timer (s)" VerticalAlignment="Center" Margin="5" />
+        <TextBox Grid.Row="2" Grid.Column="1" Name="Timer" MinWidth="30" Text="{Binding TimerSeconds}" Margin="5" ToolTip="Delay between notifications" />
+        <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="3" Text="How many seconds to wait between sending chat notifications about missing blocks. Changes reset the running timer." VerticalAlignment="Center" Margin="5" />
+        
+        <!-- Blocks -->
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Block rules" VerticalAlignment="Center" Margin="5" />
+        <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="4" Text="{Binding BlockRules}" Margin="5" ToolTip="Block types/subtypes to check for. Separate rules with ',' and blocks within one rule with '|'." />
 
         <!-- TODO: Add UI for your configuration properties, examples:
 

@@ -618,6 +618,8 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="MyBlockTracker.cs" />
+    <Compile Include="MyBlockTrackingManager.cs" />
     <Compile Include="MyCommands.cs" />
     <Compile Include="MyPatches.cs" />
     <Compile Include="Plugin.cs" />
