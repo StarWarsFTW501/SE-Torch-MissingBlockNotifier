@@ -26,6 +26,8 @@ namespace TorchPlugin
         internal IMyPluginConfig Config => _config?.Data;
         private PersistentConfig<MyPluginConfig> _config;
 
+        internal MyBlockTrackingManager TrackingManager { get; private set; }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         public override void Init(ITorchBase torch)
         {
@@ -40,6 +42,8 @@ namespace TorchPlugin
 
             var harmony = new Harmony(PLUGIN_NAME);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
+
+            TrackingManager = new MyBlockTrackingManager();
 
             Logger.Info("Plugin initialized.");
         }

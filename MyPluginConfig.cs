@@ -12,7 +12,8 @@ namespace TorchPlugin
     {
         bool _enabled;
         double _timerSeconds = 600;
-        string _blockRules = "Beacon/LargeBlockBeacon|Beacon/LargeBlockBeaconReskin|Beacon/SmallBlockBeacon|Beacon/SmallBlockBeaconReskin";
+        string _blockRules = "Beacons|Beacon/LargeBlockBeacon|Beacon/LargeBlockBeaconReskin|Beacon/SmallBlockBeacon|Beacon/SmallBlockBeaconReskin";
+        MyTrackableType _trackableType = MyTrackableType.CONSTRUCT;
 
         public bool Enabled
         {
@@ -52,6 +53,21 @@ namespace TorchPlugin
                 }
             }
         }
+
+        public MyTrackableType TrackableType
+        {
+            get => _trackableType;
+            set
+            {
+                if (_trackableType != value)
+                {
+                    _trackableType = value;
+                    OnPropertyChanged(nameof(TrackableType));
+                }
+            }
+        }
+        [XmlIgnore]
+        public Array TrackableTypes => Enum.GetValues(typeof(MyTrackableType));
 
         public event PropertyChangedEventHandler PropertyChanged;
         void OnPropertyChanged(string propertyName)
