@@ -8,12 +8,13 @@ using System.Xml.Serialization;
 
 namespace TorchPlugin
 {
+    [Serializable]
     public class MyPluginConfig : INotifyPropertyChanged, IMyPluginConfig
     {
         bool _enabled;
         double _timerSeconds = 600;
+        List<MyTrackingRule> _rules;
         string _blockRules = "Beacons|Beacon/LargeBlockBeacon|Beacon/LargeBlockBeaconReskin|Beacon/SmallBlockBeacon|Beacon/SmallBlockBeaconReskin";
-        MyTrackableType _trackableType = MyTrackableType.CONSTRUCT;
 
         public bool Enabled
         {
@@ -41,38 +42,44 @@ namespace TorchPlugin
             }
         }
 
-        public string BlockRules
+        public List<MyTrackingRule> Rules
         {
-            get => _blockRules;
+            get => _rules;
             set
             {
-                if (_blockRules != value)
+                if (_rules != value)
                 {
-                    _blockRules = value;
-                    OnPropertyChanged(nameof(BlockRules));
+                    foreach (var rule in _rules)
+                        PropertyChanged -= OnRuleChanged;
+                    foreach (var rule in value)
+                        PropertyChanged += OnRuleChanged;
+                    _rules = value;
+                    OnPropertyChanged(nameof(Rules));
                 }
             }
         }
 
-        public MyTrackableType TrackableType
+        public void AddRule(MyTrackingRule rule)
         {
-            get => _trackableType;
-            set
-            {
-                if (_trackableType != value)
-                {
-                    _trackableType = value;
-                    OnPropertyChanged(nameof(TrackableType));
-                }
-            }
+            Rules.Add(rule);
+            OnPropertyChanged(nameof(Rules));
         }
-        [XmlIgnore]
-        public Array TrackableTypes => Enum.GetValues(typeof(MyTrackableType));
+        public void RemoveRule(MyTrackingRule rule)
+        {
+            Rules.Remove(rule);
+            OnPropertyChanged(nameof(Rules));
+        }
+        public void RemoveRule(int index)
+        {
+            Rules.RemoveAt(index);
+            OnPropertyChanged(nameof(Rules));
+        }
 
         public event PropertyChangedEventHandler PropertyChanged;
         void OnPropertyChanged(string propertyName)
         {
             PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
         }
+        void OnRuleChanged(object rule, PropertyChangedEventArgs propertyChangedEventArgs) => OnPropertyChanged($"{(rule as MyTrackingRule)?.Name}:{propertyChangedEventArgs.PropertyName}");
     }
 }

@@ -10,8 +10,6 @@ namespace TorchPlugin
     {
         bool Enabled { get; set; }
         double TimerSeconds { get; set; }
-        string BlockRules { get; set; }
-        MyTrackableType TrackableType { get; set; }
-        Array TrackableTypes { get; }
+        List<MyTrackingRule> Rules { get; set; }
     }
 }

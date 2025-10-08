@@ -38,16 +38,12 @@
         <TextBlock Grid.Row="2" Grid.Column="0" Text="Timer (s)" VerticalAlignment="Center" Margin="5" />
         <TextBox Grid.Row="2" Grid.Column="1" Name="Timer" MinWidth="30" Text="{Binding TimerSeconds}" Margin="5" ToolTip="Delay between notifications" />
         <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="3" Text="How many seconds to wait between sending chat notifications about missing blocks. Changes reset the running timer." VerticalAlignment="Center" Margin="5" />
-        
+
         <!-- Blocks -->
         <TextBlock Grid.Row="3" Grid.Column="0" Text="Block rules" VerticalAlignment="Center" Margin="5" />
-        <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="4" Text="{Binding BlockRules}" Margin="5" ToolTip="Block types/subtypes to check for. Separate rules with ',' and blocks within one rule with '|'. The first block of a rule is its name instead." />
+        <Button Grid.Row="3" Grid.Column="1" Content="Manage" ToolTip="Change, add or remove tracking rules" Margin="5" Command="{Binding }" />
+        <TextBlock Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="3" Text="Configuration of blocks the plugin will track and notify players about" VerticalAlignment="Center" Margin="5" />
 
-        <!-- Trackable -->
-        <TextBlock Grid.Row="4" Grid.Column="0" Text="Tracking type" VerticalAlignment="Center" Margin="5" />
-        <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding TrackableTypes}" SelectedItem="{Binding TrackableType}" ToolTip="Construct = Grids with subgrids, Connector connected = Structures linked by connectors, Grid = No pooling" Margin="5" />
-        <TextBlock Grid.Row="4" Grid.Column="2" Grid.ColumnSpan="3" Text="Selects to what extent grids should pool their tracked blocks together" VerticalAlignment="Center" Margin="5" />
-        
         <!-- TODO: Add UI for your configuration properties, examples:
 
         <TextBlock Grid.Row="3" Grid.Column="0" Text="Label of String Property" VerticalAlignment="Center" Margin="5"/>

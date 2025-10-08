@@ -623,6 +623,7 @@
     <Compile Include="MyCommands.cs" />
     <Compile Include="MyPatches.cs" />
     <Compile Include="MyTrackable.cs" />
+    <Compile Include="MyTrackingRule.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="ConfigView.xaml.cs" />
     <Compile Include="MyLogger.cs" />
