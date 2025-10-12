@@ -10,6 +10,6 @@ namespace TorchPlugin
     {
         bool Enabled { get; set; }
         double TimerSeconds { get; set; }
-        List<MyTrackingRule> Rules { get; set; }
+        List<MyTrackingGroup> Groups { get; set; }
     }
 }

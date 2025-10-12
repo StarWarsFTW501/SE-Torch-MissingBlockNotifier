@@ -9,7 +9,7 @@ using VRage.Game.Entity;
 
 namespace TorchPlugin
 {
-    internal class MyBlockTracker
+    public class MyBlockTracker
     {
         /// <summary>
         /// Represents a job for scanning a large number of blocks simultaneously for any number of <see cref="MyBlockTracker"/>s.
@@ -18,17 +18,33 @@ namespace TorchPlugin
         {
             int _matches = 0;
             public Action<int> Callback;
-            public Func<MySlimBlock, bool> ScanBlock;
+            public Func<MySlimBlock, bool> ScanBlockPredicate;
 
             /// <summary>
             /// Creates a new <see cref="ScanJob"/> with a callback to be executed when done.
             /// </summary>
-            /// <param name="scanBlock">Function returning whether or not a passed block matches criteria given by original <see cref="MyBlockTracker"/>.</param>
+            /// <param name="scanBlock">Predicate returning whether or not a passed block matches criteria given by <see cref="MyBlockTracker"/>. Needs to be thread safe!</param>
             /// <param name="callback">Callback executed when the scan is done, passing number of total matches encountered.</param>
             public ScanJob(Func<MySlimBlock, bool> scanBlock, Action<int> callback)
             {
-                ScanBlock = scanBlock;
+                ScanBlockPredicate = scanBlock;
                 Callback = callback;
+            }
+            /// <summary>
+            /// Applies the scan to a single block, registering a match if appropriate.
+            /// </summary>
+            /// <param name="block"></param>
+            public void ScanBlock(MySlimBlock block)
+            {
+                if (ScanBlockPredicate(block))
+                    _matches++;
+            }
+            /// <summary>
+            /// Finalizes the scan and executes the callback with the total number of matches encountered.
+            /// </summary>
+            public void Complete()
+            {
+                Callback?.Invoke(_matches);
             }
         }
 
@@ -37,6 +53,19 @@ namespace TorchPlugin
         public MyBlockTracker(MyTrackingRule rule)
         {
             Rule = rule;
+        }
+
+        /// <summary>
+        /// Retrieves the currently accumulated number of matches for a given <see cref="MyTrackable"/> by this <see cref="MyBlockTracker"/>.
+        /// </summary>
+        /// <param name="trackable">The <see cref="MyTrackable"/> to retrieve matches for.</param>
+        /// <returns>The accumulated number of matches.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the requested <see cref="MyTrackable"/> is not registered with this tracker.</exception>
+        public int GetMatchesForTrackable(MyTrackable trackable)
+        {
+            if (_matches.TryGetValue(trackable, out var matches))
+                return matches;
+            throw new InvalidOperationException("Attempted to retrieve matches for untracked trackable!");
         }
 
 
@@ -138,6 +167,20 @@ namespace TorchPlugin
             }
             return null;
         }
+        /// <summary>
+        /// Resets the specified trackable to its initial state.
+        /// </summary>
+        /// <remarks>This method reinitializes the state of the provided trackable object, allowing it to
+        /// be reused or reprocessed. Ensure that the trackable is in a valid state for resetting before calling this
+        /// method.</remarks>
+        /// <param name="trackable">The trackable object to reset. Cannot be null.</param>
+        public void ResetTrackable(MyTrackable trackable)
+        {
+            foreach (var target in trackable.GetAllProxiesOfType(Rule.Type))
+            {
+                _matches[target] = 0;
+            }
+        }
 
         /// <summary>
         /// Merges the tracked blocks of one trackable into another and unregisters the old one.
@@ -147,7 +190,7 @@ namespace TorchPlugin
         /// <returns><see cref="ScanJob"/> for merging of <paramref name="pullingFrom"/>'s blocks, or null if none is required.</returns>
         public ScanJob MergeTrackables(MyTrackable pullingFrom, MyTrackable mergingInto)
         {
-            var targetInto = mergingInto.GetAncestorOfType(Rule.Type)
+            var targetInto = mergingInto?.GetAncestorOfType(Rule.Type)
                 ?? throw new NullReferenceException($"No ancestor of type '{Rule.Type}' found for trackable during merge as target!");
 
             int matchesFrom = 0;

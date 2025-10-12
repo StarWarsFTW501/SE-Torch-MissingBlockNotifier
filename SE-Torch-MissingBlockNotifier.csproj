@@ -508,7 +508,7 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="Torch, Culture=neutral, PublicKeyToken=null">
-      <HintPath>$(Torch)\Torch.dll</HintPath>
+      <HintPath>..\..\..\Torch\Torch.dll</HintPath>
       <SpecificVersion>false</SpecificVersion>
     </Reference>
     <Reference Include="Torch.API, Culture=neutral, PublicKeyToken=null">
@@ -519,9 +519,8 @@
       <HintPath>$(Torch)\Torch.Server.exe</HintPath>
       <SpecificVersion>false</SpecificVersion>
     </Reference>
-    <Reference Include="VRage, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
-      <HintPath>$(Torch)\DedicatedServer64\VRage.dll</HintPath>
-      <Private>False</Private>
+    <Reference Include="VRage">
+      <HintPath>..\..\..\Torch\DedicatedServer64\VRage.dll</HintPath>
     </Reference>
     <Reference Include="VRage.Ansel, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
       <HintPath>$(Torch)\DedicatedServer64\VRage.Ansel.dll</HintPath>
@@ -623,6 +622,7 @@
     <Compile Include="MyCommands.cs" />
     <Compile Include="MyPatches.cs" />
     <Compile Include="MyTrackable.cs" />
+    <Compile Include="MyTrackingGroup.cs" />
     <Compile Include="MyTrackingRule.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="ConfigView.xaml.cs" />
@@ -639,7 +639,7 @@
     <Compile Include="MyPatchUtilities.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
   </ItemGroup>
   <ItemGroup>

@@ -13,8 +13,7 @@ namespace TorchPlugin
     {
         bool _enabled;
         double _timerSeconds = 600;
-        List<MyTrackingRule> _rules;
-        string _blockRules = "Beacons|Beacon/LargeBlockBeacon|Beacon/LargeBlockBeaconReskin|Beacon/SmallBlockBeacon|Beacon/SmallBlockBeaconReskin";
+        List<MyTrackingGroup> _groups;
 
         public bool Enabled
         {
@@ -42,37 +41,40 @@ namespace TorchPlugin
             }
         }
 
-        public List<MyTrackingRule> Rules
+        public List<MyTrackingGroup> Groups
         {
-            get => _rules;
+            get => _groups;
             set
             {
-                if (_rules != value)
+                if (_groups != value)
                 {
-                    foreach (var rule in _rules)
-                        PropertyChanged -= OnRuleChanged;
+                    foreach (var rule in _groups)
+                        PropertyChanged -= OnGroupChanged;
                     foreach (var rule in value)
-                        PropertyChanged += OnRuleChanged;
-                    _rules = value;
-                    OnPropertyChanged(nameof(Rules));
+                        PropertyChanged += OnGroupChanged;
+                    _groups = value;
+                    OnPropertyChanged(nameof(Groups));
                 }
             }
         }
 
-        public void AddRule(MyTrackingRule rule)
+        public void AddGroup(MyTrackingGroup group)
         {
-            Rules.Add(rule);
-            OnPropertyChanged(nameof(Rules));
+            Groups.Add(group);
+            group.PropertyChanged += OnGroupChanged;
+            OnPropertyChanged(nameof(Groups));
         }
-        public void RemoveRule(MyTrackingRule rule)
+        public void RemoveGroup(MyTrackingGroup group)
         {
-            Rules.Remove(rule);
-            OnPropertyChanged(nameof(Rules));
+            Groups.Remove(group);
+            group.PropertyChanged -= OnGroupChanged;
+            OnPropertyChanged(nameof(Groups));
         }
-        public void RemoveRule(int index)
+        public void RemoveGroup(int index)
         {
-            Rules.RemoveAt(index);
-            OnPropertyChanged(nameof(Rules));
+            Groups[index].PropertyChanged -= OnGroupChanged;
+            Groups.RemoveAt(index);
+            OnPropertyChanged(nameof(Groups));
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
@@ -80,6 +82,6 @@ namespace TorchPlugin
         {
             PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
         }
-        void OnRuleChanged(object rule, PropertyChangedEventArgs propertyChangedEventArgs) => OnPropertyChanged($"{(rule as MyTrackingRule)?.Name}:{propertyChangedEventArgs.PropertyName}");
+        void OnGroupChanged(object group, PropertyChangedEventArgs propertyChangedEventArgs) => OnPropertyChanged($"{(group as MyTrackingGroup)?.Name}:{propertyChangedEventArgs.PropertyName}");
     }
 }
