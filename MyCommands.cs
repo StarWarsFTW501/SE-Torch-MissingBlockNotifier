@@ -80,5 +80,44 @@ namespace TorchPlugin
             Plugin.Instance.GetConfigApplicator(out _)();
             Respond("Configuration applied.");
         }
+        [Command("notifier reload", "Reloads tracking data for all trackable entities on the server.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void Reload()
+        {
+            if (!Plugin.Instance.TrackingManager.IsStarted)
+            {
+                Respond("Tracking manager is not started. Cannot reload tracking data.");
+                return;
+            }
+            Respond("Reloading tracking data for all trackable entities on the server...");
+            Plugin.Instance.TrackingManager.LoadConfig();
+            Respond("Tracking data reloaded.");
+        }
+        [Command("notifier start", "Starts the tracking manager and loads tracking data.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void Start()
+        {
+            if (Plugin.Instance.TrackingManager.IsStarted)
+            {
+                Respond("Tracking manager is already started.");
+                return;
+            }
+            Respond("Starting tracking manager and loading tracking data...");
+            Plugin.Instance.TrackingManager.Start();
+            Respond("Tracking manager started.");
+        }
+        [Command("notifier stop", "Stops the tracking manager and unloads all tracking data.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void Stop()
+        {
+            if (!Plugin.Instance.TrackingManager.IsStarted)
+            {
+                Respond("Tracking manager is not started.");
+                return;
+            }
+            Respond("Stopping tracking manager...");
+            Plugin.Instance.TrackingManager.Stop();
+            Respond("Tracking manager stopped.");
+        }
     }
 }
