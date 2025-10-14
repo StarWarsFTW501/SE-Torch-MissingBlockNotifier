@@ -67,7 +67,7 @@ namespace TorchPlugin
         /// <returns><see cref="MyTrackable"/> furthest ancestor (or self) whose this is the sole descendant.</returns>
         public MyTrackable GetHighestSingleAncestor()
         {
-            return Parent == null || Parent.Children.Count() != 0 ? this : Parent.GetHighestSingleAncestor();
+            return Parent == null || Parent.Children.Count() != 1 ? this : Parent.GetHighestSingleAncestor();
         }
 
         /// <summary>
@@ -76,6 +76,33 @@ namespace TorchPlugin
         /// <param name="child"><see cref="MyTrackable"/> child to remove.</param>
         public void RemoveChild(MyTrackable child)
             => Children = Children.Where(c => c != child).ToList();
+
+        /// <summary>
+        /// Generates a human-readable identifier of this <see cref="MyTrackable"/> with the largest <see cref="MyCubeGrid"/>'s name and potentially number of other connected <see cref="MyCubeGrid"/>s.
+        /// </summary>
+        /// <returns>A human-readable identifier of this object including the name of the largest <see cref="MyCubeGrid"/>.</returns>
+        public string GetDisplayName()
+        {
+            MyCubeGrid largestGrid = null;
+            int maxSize = 0;
+            foreach (var grid in GetAllLeafProxies())
+            {
+                Plugin.Instance.Logger.Info($"GetDisplayName() - Visiting {grid.Grid.DisplayName} - blocks: {grid.Grid.BlocksCount}");
+                if (grid.Grid.BlocksCount > maxSize)
+                {
+                    maxSize = grid.Grid.BlocksCount;
+                    largestGrid = grid.Grid;
+                }
+            }
+
+            if (largestGrid == null)
+                throw new NullReferenceException($"Result of largest {nameof(MyCubeGrid)} search in trackable was NULL! Cannot generate trackable name! Please disable the plugin and contact author!");
+
+            if (ContainedCount > 1)
+                return $"{largestGrid.DisplayName} (and {ContainedCount - 1} other grids on {(TrackableType == MyTrackableType.CONSTRUCT ? "subgrids" : "connectors/subgrids")})";
+
+            return largestGrid.DisplayName;
+        }
     }
 
     /// <summary>
@@ -103,7 +130,7 @@ namespace TorchPlugin
     {
         public MyTrackable_Construct(IEnumerable<MyTrackable> grids)
         {
-            Children = grids;
+            Children = grids.ToList();
             _containedCount = 0;
             foreach (var child in Children)
             {
@@ -120,7 +147,7 @@ namespace TorchPlugin
     {
         public MyTrackable_ConnectorStructure(IEnumerable<MyTrackable> constructs)
         {
-            Children = constructs;
+            Children = constructs.ToList();
             _containedCount = 0;
             foreach (var child in Children)
             {

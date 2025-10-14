@@ -23,6 +23,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -40,9 +41,13 @@
         <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="3" Text="How many seconds to wait between sending chat notifications about missing blocks. Changes reset the running timer." VerticalAlignment="Center" Margin="5" />
 
         <!-- Blocks -->
-        <TextBlock Grid.Row="3" Grid.Column="0" Text="Block rules" VerticalAlignment="Center" Margin="5" />
-        <Button Grid.Row="3" Grid.Column="1" Content="Manage" ToolTip="Change, add or remove tracking rules" Margin="5" Command="{Binding }" />
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Tracking groups" VerticalAlignment="Center" Margin="5" />
+        <Button Grid.Row="3" Grid.Column="1" Content="Manage" ToolTip="Change, add or remove tracking groups" Margin="5" MinWidth="60" Command="{Binding ManageGroupsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
         <TextBlock Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="3" Text="Configuration of blocks the plugin will track and notify players about" VerticalAlignment="Center" Margin="5" />
+        
+        <!-- Apply button -->
+        <Button Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" Content="Apply changes" ToolTip="Apply configuration changes to the server" Margin="5" Command="{Binding ApplyChangesCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+        <TextBlock Grid.Row="5" Grid.Column="2" Grid.ColumnSpan="3" Text="Apply changes made in plugin configuration to the server" VerticalAlignment="Center" Margin="5" />
 
         <!-- TODO: Add UI for your configuration properties, examples:
 

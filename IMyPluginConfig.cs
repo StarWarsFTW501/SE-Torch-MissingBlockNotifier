@@ -8,8 +8,15 @@ namespace TorchPlugin
 {
     internal interface IMyPluginConfig
     {
+        List<string> ChangedProperties { get; }
+        bool HasChanges { get; }
         bool Enabled { get; set; }
-        double TimerSeconds { get; set; }
+        float TimerSeconds { get; set; }
         List<MyTrackingGroup> Groups { get; set; }
+
+
+        void AddGroup(MyTrackingGroup group);
+        void RemoveGroup(MyTrackingGroup group);
+        void RemoveGroup(int index);
     }
 }

@@ -42,7 +42,7 @@ namespace TorchPlugin
 
         PersistentConfig(T data, string path)
         {
-            _data = data;
+            Data = data;
             _path = path;
         }
 

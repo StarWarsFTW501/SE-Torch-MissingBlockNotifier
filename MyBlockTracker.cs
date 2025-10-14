@@ -72,7 +72,7 @@ namespace TorchPlugin
         /// <summary>
         /// Tracks the number of matches for this rule in each registered Trackable. Key = trackable, Value = number of matches
         /// </summary>
-        Dictionary<MyTrackable, int> _matches = new Dictionary<MyTrackable, int>();
+        public Dictionary<MyTrackable, int> _matches = new Dictionary<MyTrackable, int>();
 
         /// <summary>
         /// Registers a new <see cref="MyTrackable"/> for tracking by this tracker. Does not check trackable's blocks!
@@ -80,7 +80,29 @@ namespace TorchPlugin
         /// <param name="trackable"><see cref="MyTrackable"/> to register.</param>
         public void RegisterNewTrackable(MyTrackable trackable)
         {
+            trackable = trackable?.GetAncestorOfType(Rule.Type)
+                ?? throw new NullReferenceException($"No ancestor of type '{Rule.Type}' found for trackable during registration!");
+            if (_matches.ContainsKey(trackable))
+                throw new InvalidOperationException("Attempted double registration of trackable in tracker!");
             _matches[trackable] = 0;
+        }
+
+        /// <summary>
+        /// Registers a new <see cref="MyTrackable"/> for tracking by this tracker. Does not check trackable's blocks! If already registered, the generated error is ignored.
+        /// </summary>
+        /// <param name="trackable"><see cref="MyTrackable"/> to register.</param>
+        /// <returns><see langword="true"/> if successfully registered, <see langword="false"/> otherwise.</returns>
+        public bool TryRegisterNewTrackable(MyTrackable trackable)
+        {
+            try
+            {
+                RegisterNewTrackable(trackable);
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -93,29 +115,8 @@ namespace TorchPlugin
             var target = trackable?.GetAncestorOfType(Rule.Type)
                 ?? throw new NullReferenceException($"No ancestor of type '{Rule.Type}' found for trackable during scan!");
 
-            return new ScanJob(b => Rule.BlockMatchesRule(b), m => _matches[target] += m);
+            return new ScanJob(Rule.BlockMatchesRule, m => _matches[target] += m);
         }
-
-        /*
-        int GetMatchesForTrackable(MyTrackable trackable)
-        {
-            int result = 0;
-            foreach (var trackedProxy in trackable.GetAllProxiesOfType(Rule.Type))
-            {
-                foreach (var gridProxy in trackedProxy.GetAllLeafProxies())
-                {
-                    foreach (var block in gridProxy.Grid.CubeBlocks)
-                    {
-                        if (Rule.BlockMatchesRule(block))
-                        {
-                            result++;
-                        }
-                    }
-                }
-            }
-            return result;
-        }
-        */
 
         /// <summary>
         /// Attempts to register a block belonging to a trackable with this tracker, and adjusts tracked matches if appropriate.
@@ -145,7 +146,8 @@ namespace TorchPlugin
         /// <returns><see cref="ScanJob"/> for unregistration of <paramref name="trackable"/>'s blocks, or null if none is required.</returns>
         public ScanJob UnregisterTrackable(MyTrackable trackable)
         {
-            
+            if (trackable == null)
+                throw new ArgumentNullException(nameof(trackable), "Cannot unregister null trackable!");
             if (trackable.TrackableType == Rule.Type)
             {
                 _matches.Remove(trackable);
@@ -155,11 +157,11 @@ namespace TorchPlugin
                 var target = trackable.GetAncestorOfType(Rule.Type);
                 if (target != null)
                 {
-                    return new ScanJob(b => Rule.BlockMatchesRule(b), m => _matches[target] -= m);
+                    return new ScanJob(Rule.BlockMatchesRule, m => _matches[target] -= m);
                 }
                 else
                 {
-                    foreach (var proxy in target.GetAllProxiesOfType(Rule.Type))
+                    foreach (var proxy in trackable.GetAllProxiesOfType(Rule.Type))
                     {
                         _matches.Remove(proxy);
                     }
@@ -245,10 +247,21 @@ namespace TorchPlugin
             var targetInto = target?.GetAncestorOfType(Rule.Type)
                 ?? throw new NullReferenceException($"No ancestor of type '{Rule.Type}' found for trackable during split!");
 
+            if (targetFrom == targetInto)
+            {
+                // common ancestor on lower or equal level to this tracker = tracking stays the same
+                return null;
+            }
+
             if (!_matches.ContainsKey(targetFrom))
-                throw new Exception("Attempted to split an untracked trackable object! Indicative of error in plugin! Please disable the plugin and inform author!");
+                throw new InvalidOperationException("Attempted to split an untracked trackable object!");
             if (!_matches.ContainsKey(targetInto))
-                throw new Exception("Attempted to move blocks into an untracked trackable object! Indicative of error in plugin! Please disable the plugin and inform author!");
+                throw new InvalidOperationException("Attempted to move blocks into an untracked trackable object!");
+
+            if (target == targetInto)
+            {
+                // in case we are splitting 
+            }
 
             return new ScanJob(Rule.BlockMatchesRule, m =>
             {

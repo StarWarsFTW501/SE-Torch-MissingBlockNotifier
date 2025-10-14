@@ -520,7 +520,7 @@
       <SpecificVersion>false</SpecificVersion>
     </Reference>
     <Reference Include="VRage">
-      <HintPath>..\..\..\Torch\DedicatedServer64\VRage.dll</HintPath>
+      <HintPath>..\..\..\..\..\Steam\Steam Library\steamapps\common\SpaceEngineers\Bin64\VRage.dll</HintPath>
     </Reference>
     <Reference Include="VRage.Ansel, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
       <HintPath>$(Torch)\DedicatedServer64\VRage.Ansel.dll</HintPath>
@@ -617,15 +617,27 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Controls\Dialog.xaml.cs">
+      <DependentUpon>Dialog.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\GroupControl.xaml.cs">
+      <DependentUpon>GroupControl.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\GroupManagerView.xaml.cs">
+      <DependentUpon>GroupManagerView.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MyBlockTracker.cs" />
     <Compile Include="MyBlockTrackingManager.cs" />
     <Compile Include="MyCommands.cs" />
     <Compile Include="MyPatches.cs" />
+    <Compile Include="Controls\MyRelayCommand.cs" />
     <Compile Include="MyTrackable.cs" />
     <Compile Include="MyTrackingGroup.cs" />
     <Compile Include="MyTrackingRule.cs" />
     <Compile Include="Plugin.cs" />
-    <Compile Include="ConfigView.xaml.cs" />
+    <Compile Include="Controls\ConfigView.xaml.cs">
+      <DependentUpon>ConfigView.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MyLogger.cs" />
     <Compile Include="IMyPluginConfig.cs" />
     <Compile Include="MyPluginConfig.cs" />
@@ -648,7 +660,19 @@
     <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
-    <Page Include="ConfigView.xaml" />
+    <Page Include="Controls\ConfigView.xaml" />
+    <Page Include="Controls\Dialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Controls\GroupControl.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Controls\GroupManagerView.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>

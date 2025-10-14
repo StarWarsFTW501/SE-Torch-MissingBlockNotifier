@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using System.Xml.Serialization;
 
 namespace TorchPlugin
@@ -11,9 +12,14 @@ namespace TorchPlugin
     [Serializable]
     public class MyPluginConfig : INotifyPropertyChanged, IMyPluginConfig
     {
-        bool _enabled;
-        double _timerSeconds = 600;
-        List<MyTrackingGroup> _groups;
+        [XmlIgnore]
+        public List<string> ChangedProperties { get; } = new List<string>();
+        [XmlIgnore]
+        public bool HasChanges => ChangedProperties.Count > 0;
+
+        bool _enabled = false;
+        float _timerSeconds = 600;
+        List<MyTrackingGroup> _groups = new List<MyTrackingGroup>();
 
         public bool Enabled
         {
@@ -28,7 +34,7 @@ namespace TorchPlugin
             }
         }
 
-        public double TimerSeconds
+        public float TimerSeconds
         {
             get => _timerSeconds;
             set
@@ -48,10 +54,10 @@ namespace TorchPlugin
             {
                 if (_groups != value)
                 {
-                    foreach (var rule in _groups)
-                        PropertyChanged -= OnGroupChanged;
-                    foreach (var rule in value)
-                        PropertyChanged += OnGroupChanged;
+                    foreach (var group in _groups)
+                        group.PropertyChanged -= OnGroupChanged;
+                    foreach (var group in value)
+                        group.PropertyChanged += OnGroupChanged;
                     _groups = value;
                     OnPropertyChanged(nameof(Groups));
                 }
@@ -80,8 +86,15 @@ namespace TorchPlugin
         public event PropertyChangedEventHandler PropertyChanged;
         void OnPropertyChanged(string propertyName)
         {
-            PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            ChangedProperties.Add(propertyName);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            CommandManager.InvalidateRequerySuggested();
         }
-        void OnGroupChanged(object group, PropertyChangedEventArgs propertyChangedEventArgs) => OnPropertyChanged($"{(group as MyTrackingGroup)?.Name}:{propertyChangedEventArgs.PropertyName}");
+        void OnGroupChanged(object group, PropertyChangedEventArgs propertyChangedEventArgs)
+        {
+            ChangedProperties.Add(nameof(Groups));
+            PropertyChanged?.Invoke(group, new PropertyChangedEventArgs($"{(group as MyTrackingGroup)?.Name}:{propertyChangedEventArgs.PropertyName}"));
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 }

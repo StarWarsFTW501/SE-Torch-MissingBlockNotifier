@@ -1,20 +1,37 @@
-﻿using SteamKit2.GC.Dota.Internal;
+﻿using HarmonyLib;
+using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.World;
+using Sandbox.ModAPI;
+using SteamKit2.GC.Dota.Internal;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using Torch.API.Managers;
+using VRage.Utils;
 
 namespace TorchPlugin
 {
     public class MyTrackingGroup : INotifyPropertyChanged
     {
+        readonly static FieldInfo _fieldInfo_m_ownershipManager = typeof(MyCubeGrid).GetField("m_ownershipManager", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingFieldException($"Field 'm_ownershipManager' not found in type '{nameof(MyCubeGrid)}'! Please disable the plugin and contact author!");
+        readonly static Type _type_MyCubeGridOnwershipManager = AccessTools.TypeByName("Sandbox.Game.Entities.Cube.MyCubeGridOwnershipManager")
+            ?? throw new MissingMemberException($"Type 'Sandbox.Game.Entities.Cube.MyCubeGridOwnershipManager' not found in game assembly! Please disable the plugin and contact author!");
+        readonly static FieldInfo _fieldInfo_PlayerOwnedValidBlocks = _type_MyCubeGridOnwershipManager.GetField("PlayerOwnedValidBlocks")
+            ?? throw new MissingFieldException($"Field 'PlayerOwnedValidBlocks' not found in type 'MyCubeGridOwnershipManager'! Please disable the plugin and contact author!");
+
+        Dictionary<long, List<MyTrackable>> _toMessageTrackablesByPlayer = new Dictionary<long, List<MyTrackable>>();
+
         /// <summary>
-        /// Checks this <see cref="MyTrackingGroup"/>'s rules for a <see cref="MyTrackable"/> and sends a message to the <see cref="MyTrackable"/>'s majority owner(s) if online.
+        /// Checks this <see cref="MyTrackingGroup"/>'s rules for a <see cref="MyTrackable"/> and enqueues a message to the <see cref="MyTrackable"/>'s majority owner(s) if online.
         /// </summary>
         /// <param name="trackable">The <see cref="MyTrackable"/> to check with this group.</param>
-        public void ExecuteMessageForTrackable(MyTrackable trackable)
+        public void EnqueueMessageForTrackable(MyTrackable trackable)
         {
             // check grid count rule first
             if (Type != MyTrackableType.GRID)
@@ -49,36 +66,98 @@ namespace TorchPlugin
             if (match)
             {
                 // look for owners
-                var ids = new List<long>();
-                
+                var ownedBlocksByOwner = new Dictionary<long, int>();
 
-
+                int totalBlocks = 0;
 
                 foreach (var grid in trackable.GetAllLeafProxies())
                 {
-                    if (mo)
-                    var owners = MyOwnershipTracker.GetGridMajorityOwners(grid.Grid);
-                    foreach (var owner in owners)
+                    var ownershipManager = _fieldInfo_m_ownershipManager.GetValue(grid);
+
+                    var allOwners = grid.Grid.SmallOwners;
+
+                    foreach (var owner in allOwners)
                     {
-                        var player = MyPlayerTracker.GetPlayerById(owner);
-                        if (player?.IsOnline == true)
+                        var dict = (Dictionary<long, int>)_fieldInfo_PlayerOwnedValidBlocks.GetValue(ownershipManager);
+
+                        int ownedBlocks = dict[owner];
+
+                        totalBlocks += ownedBlocks;
+
+                        if (!ownedBlocksByOwner.ContainsKey(owner))
+                            ownedBlocksByOwner[owner] = ownedBlocks;
+                        else ownedBlocksByOwner[owner] += ownedBlocks;
+                    }
+                }
+
+
+                var toNotify = new List<long>();
+                if (MessageMode == MyGroupMessageMode.BIG_OWNERS)
+                {
+                    int maxBlocks = 0;
+                    foreach (var owner in ownedBlocksByOwner)
+                    {
+                        int ownedBlocks = owner.Value;
+                        if (ownedBlocks > maxBlocks)
                         {
-                            MyChatSender.SendPrivateMessage(player.SteamId, ChatMessage.Replace("{name}", player.DisplayName).Replace("{grid}", grid.Grid.DisplayName).Replace("{group}", Name));
+                            toNotify.Clear();
+                            toNotify.Add(owner.Key);
+                            maxBlocks = ownedBlocks;
+                        }
+                        else if (ownedBlocks == maxBlocks)
+                        {
+                            toNotify.Add(owner.Key);
                         }
                     }
+                }
+                else // if (MessageMode == MyGroupMessageMode.PERCENTAGE)
+                {
+                    foreach (var owner in ownedBlocksByOwner)
+                    {
+                        int ownedBlocks = owner.Value;
+                        if ((double)ownedBlocks / totalBlocks > _fractionOwnedForMessage)
+                        {
+                            toNotify.Add(owner.Key);
+                        }
+                    }
+                }
+
+                foreach (var owner in toNotify)
+                {
+                    if (!_toMessageTrackablesByPlayer.ContainsKey(owner))
+                        _toMessageTrackablesByPlayer[owner] = new List<MyTrackable> { trackable };
+                    else _toMessageTrackablesByPlayer[owner].Add(trackable);
                 }
             }
         }
 
+        /// <summary>
+        /// Sends all enqueued messages to the appropriate players in bulk.
+        /// </summary>
+        public void SendQueuedMessages()
+        {
+            var stringBuilder = new StringBuilder();
+            foreach (var messagePair in _toMessageTrackablesByPlayer)
+            {
+                stringBuilder.Clear().Append(ChatMessage);
 
-        string _name, _chatMessage;
+                foreach (var trackable in messagePair.Value)
+                    stringBuilder.Append('\n').Append(trackable.GetDisplayName());
+
+                Plugin.Instance.SendChatMessageToIdentityId(stringBuilder.ToString(), messagePair.Key);
+            }
+            _toMessageTrackablesByPlayer.Clear();
+        }
+
+
+        string _name = "Tracking Group", _chatMessage = "This message will be followed by a list of grids. Violating grids:";
         MyTrackableType _type = MyTrackableType.CONSTRUCT;
         MyGroupMatchMode _mode = MyGroupMatchMode.ALL;
         MyGroupMessageMode _messageMode = MyGroupMessageMode.BIG_OWNERS;
         MyRuleMode _gridCountMode = MyRuleMode.MORE;
         int _gridCount = 0;
-        float _percentOwnedForMessage = 20;
-        List<MyTrackingRule> _rules;
+        float _fractionOwnedForMessage = .2f;
+        List<MyTrackingRule> _rules = new List<MyTrackingRule>();
         public string Name
         {
             get => _name;
@@ -153,12 +232,13 @@ namespace TorchPlugin
         }
         public float PercentOwnedForMessage
         {
-            get => _percentOwnedForMessage;
+            get => _fractionOwnedForMessage * 100;
             set
             {
-                if (_percentOwnedForMessage != value)
+                value = value / 100;
+                if (_fractionOwnedForMessage != value)
                 {
-                    _percentOwnedForMessage = value;
+                    _fractionOwnedForMessage = value;
                     OnPropertyChanged(nameof(PercentOwnedForMessage));
                 }
             }
@@ -209,7 +289,7 @@ namespace TorchPlugin
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
-        void OnPropertyChanged(string name) => PropertyChanged(this, new PropertyChangedEventArgs(name));
+        void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         void OnRuleChanged(object rule, PropertyChangedEventArgs propertyChangedEventArgs) => OnPropertyChanged($"{(rule as MyTrackingRule)?.TypeId}\\{(rule as MyTrackingRule)?.SubtypeName}:{propertyChangedEventArgs.PropertyName}");
 
         public static Array MatchModes => Enum.GetValues(typeof(MyGroupMatchMode));
@@ -235,6 +315,6 @@ namespace TorchPlugin
         /// <summary>
         /// Group will message all players with at least a given percentage of grid owned
         /// </summary>
-        ALL_OWNERS
+        PERCENTAGE
     }
 }

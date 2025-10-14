@@ -20,13 +20,65 @@ namespace TorchPlugin
             Context?.Respond(message);
         }
 
-        [Command("plugin examplecommand", "Example command description.")]
+        [Command("notifier notify", "Immediately notifies all players of current violations of set tracking groups.")]
         [Permission(MyPromoteLevel.Admin)]
-        public void ExampleCommand()
+        public void Notify()
         {
-            Respond("The example command was executed.");
+            Respond("Notifying all players of current violations of set tracking groups...");
+            Plugin.Instance.TrackingManager.ExecuteNotification();
+            Respond("Players notified.");
         }
-
-
+        [Command("notifier listgroups", "Lists all currently active tracking groups.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void ListGroups()
+        {
+            foreach (var group in Plugin.Instance.Config.Groups)
+            {
+                Respond($"{group.Name} -- Type: {group.Type} -- Mode: {group.Mode} -- Rules: {group.Rules.Count}");
+            }
+        }
+        [Command("notifier listrules", "Lists all currently active rules for given tracking group.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void ListGroups(string groupName)
+        {
+            foreach (var group in Plugin.Instance.Config.Groups)
+            {
+                if (group.Name == groupName)
+                {
+                    foreach (var rule in group.Rules)
+                        Respond($"{rule.TypeId}\\{rule.SubtypeName} -- Mode: {rule.Mode} -- Target matches: {rule.TargetMatches}");
+                    return;
+                }
+            }
+            Respond($"No group found with name '{groupName}'.");
+        }
+        [Command("notifier listtree", "Lists all entries in the tracking hierarchy.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void ListTree()
+        {
+            Respond($"Listing all registered proxies in the tracking hierarchy:\n{Plugin.Instance.TrackingManager.ListTree()}\nTotal connector structures: {Plugin.Instance.TrackingManager.TotalProxiesOfType(MyTrackableType.CONNECTOR_STRUCTURE)}\nTotal constructs: {Plugin.Instance.TrackingManager.TotalProxiesOfType(MyTrackableType.CONSTRUCT)}\nTotal grids: {Plugin.Instance.TrackingManager.TotalProxiesOfType(MyTrackableType.GRID)}");
+        }
+        [Command("notifier listtrackers", "Lists all running trackers, the names of their bound groups, target blocks and information about tracked proxies.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void ListTrackers()
+        {
+            Respond($"Listing all registered trackers and their matches:\n{Plugin.Instance.TrackingManager.ListTrackers()}");
+        }
+        [Command("notifier apply", "Applies unsaved changes to the configuration.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void Apply()
+        {
+            if (!Plugin.Instance.Config.HasChanges)
+            {
+                Respond("No changes to apply.");
+                return;
+            }
+            var sb = new StringBuilder("Applying changes to:");
+            foreach (var prop in Plugin.Instance.Config.ChangedProperties)
+                sb.Append($" {prop},");
+            Respond(sb.ToString().TrimEnd(','));
+            Plugin.Instance.GetConfigApplicator(out _)();
+            Respond("Configuration applied.");
+        }
     }
 }
