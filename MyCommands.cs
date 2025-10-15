@@ -77,7 +77,9 @@ namespace TorchPlugin
             foreach (var prop in Plugin.Instance.Config.ChangedProperties)
                 sb.Append($" {prop},");
             Respond(sb.ToString().TrimEnd(','));
-            Plugin.Instance.GetConfigApplicator(out _)();
+            Plugin.Instance.GetConfigApplicator(out _, out bool typeProblems)();
+            if (typeProblems)
+                Respond("Warning: One or more block definitions could not be parsed. Check the log for specifics.");
             Respond("Configuration applied.");
         }
         [Command("notifier reload", "Reloads tracking data for all trackable entities on the server.")]

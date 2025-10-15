@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Torch;
@@ -23,6 +24,29 @@ namespace TorchPlugin
 {
     public class Plugin : TorchPluginBase, IWpfPlugin
     {
+        // TODO:
+        // - Fix crash when deleting multi-grid proxy - appears to be caused by mechanical disconnect being called after the grid is already removed from the world (ignore unregister of non-existent grid?)
+        // - Verify operation of complex structure merging/splitting (so far we only know simple grid addition/removal and subgrid merging works)
+        // - Verify merge blocks don't break plugin
+        // - Remove useless logs
+        // - Update UI elements with proper descriptions
+        // - Make UI for groups and rules
+        // - Ask to load dev server with full live save for stress testing
+        // - Verify partial group ownership works as intended
+        // - Update README
+        // - Refactor
+
+
+
+
+
+
+
+
+
+
+
+
         const string PLUGIN_NAME = "MissingBlockNotifier";
 
         readonly static Color DefaultChatColor = Color.Gold;
@@ -85,7 +109,14 @@ namespace TorchPlugin
             {
                 case TorchSessionState.Loaded:
                     if (Config.Enabled)
+                    {
+                        foreach (var group in Config.Groups)
+                            foreach (var rule in group.Rules)
+                                if (!rule.ValidateBlockDefinition())
+                                    Logger.Warning($"Rule in group '{group.Name}' has loaded with invalid block definition '{rule.TypeId}/{rule.SubtypeName}'! No blocks will be tracked!");
+
                         TrackingManager.Start();
+                    }
                     break;
                 case TorchSessionState.Unloading:
                     TrackingManager.Stop();
@@ -93,18 +124,33 @@ namespace TorchPlugin
             }
         }
 
+        /// <summary>
+        /// Attempts to send a chat message to the player with the given SteamID. If no such player exists or is offline, no message is sent.
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        /// <param name="steamId">The SteamID of the player to send the message to.</param>
+        /// <param name="serverColor">The color of the "Server" message author in chat. Default used if <see langword="null"/>.</param>
+        /// <param name="font">The font of the message in chat. Default used if <see langword="null"/>.</param>
         public void SendChatMessageToSteamId(string message, ulong steamId = 0, Color? serverColor = null, string font = null)
         {
-            var chatManager = Torch?.Managers?.GetManager<ChatManagerServer>();
+            var chatManager = Torch?.CurrentSession?.Managers?.GetManager<ChatManagerServer>();
             if (chatManager != null)
             {
-                chatManager.SendMessageAsOther("Server", message, serverColor ?? DefaultChatColor, steamId, font ?? DefaultChatFont);
+                if (steamId == 0 || MySession.Static.Players.TryGetPlayerBySteamId(steamId) != null)
+                    chatManager.SendMessageAsOther("Server", message, serverColor ?? DefaultChatColor, steamId, font ?? DefaultChatFont);
             }
             else
             {
                 Logger.Error($"Could not retrieve Torch server chat manager!");
             }
         }
+        /// <summary>
+        /// Attempts to send a chat message to the player with the given identity ID. If no such player exists, no message is sent.
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        /// <param name="identityId">The IdentityId of the player to send the message to.</param>
+        /// <param name="serverColor">The color of the "Server" message author in chat. Default used if <see langword="null"/>.</param>
+        /// <param name="font">The font of the message in chat. Default used if <see langword="null"/>.</param>
         public void SendChatMessageToIdentityId(string message, long identityId, Color? serverColor = null, string font = null)
         {
             ulong steamId = MySession.Static.Players.TryGetSteamId(identityId);
@@ -112,19 +158,17 @@ namespace TorchPlugin
             {
                 SendChatMessageToSteamId(message, steamId, serverColor, font);
             }
-            else
-            {
-                Logger.Error($"Could not retrieve SteamId for IdentityId {identityId}!");
-            }
         }
 
         /// <summary>
         /// Retrieves an <see cref="Action"/> used to apply configuration changes. Signals whether its execution will require a full recompute of all tracking data.
         /// </summary>
         /// <param name="needsRecompute">Whether all tracking data will be recomputed by invoking the resulting <see cref="Action"/>.</param>
+        /// <param name="typeProblems">Whether there were problems parsing provided block types or not.</param>
         /// <returns>The <see cref="Action"/> to invoke for recomputation of tracking data.</returns>
-        public Action GetConfigApplicator(out bool needsRecompute)
+        public Action GetConfigApplicator(out bool needsRecompute, out bool typeProblems)
         {
+            typeProblems = false;
             needsRecompute = false;
             Action applicator = null;
             foreach (var change in Config.ChangedProperties)
@@ -144,6 +188,13 @@ namespace TorchPlugin
                 }
                 else if (change == nameof(Config.Groups))
                 {
+                    foreach (var group in Config.Groups)
+                        foreach (var rule in group.Rules)
+                            if (!rule.ValidateBlockDefinition())
+                            {
+                                typeProblems = true;
+                                Logger.Warning($"Rule in group '{group.Name}' has an invalid block definition '{rule.TypeId}/{rule.SubtypeName}'! No blocks will be tracked!");
+                            }
                     applicator += TrackingManager.LoadConfig;
                     needsRecompute = true;
                 }
