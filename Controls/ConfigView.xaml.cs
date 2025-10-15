@@ -23,12 +23,22 @@ namespace TorchPlugin
 
         void ApplyFired()
         {
-            var applicator = Plugin.Instance.GetConfigApplicator(out bool needsRecompute);
+            var applicator = Plugin.Instance.GetConfigApplicator(out bool needsRecompute, out bool typeProblems);
             if (needsRecompute)
             {
                 var result = MessageBox.Show(
                     "Applying these changes will require a full recompute of all tracking data. This may take a while depending on the size of your world. Do you want to proceed?",
-                    "Apply changes",
+                    "Apply changes?",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (result != MessageBoxResult.Yes)
+                    return;
+            }
+            if (typeProblems)
+            {
+                var result = MessageBox.Show(
+                    "One or more block definitions specified in the configuration could not be parsed. Check the log for specifics. Are you sure you wish to continue?",
+                    "Block parsing issues!",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
                 if (result != MessageBoxResult.Yes)

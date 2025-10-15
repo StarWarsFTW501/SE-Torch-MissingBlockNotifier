@@ -50,9 +50,22 @@ namespace TorchPlugin
         int _targetMatches;
         MyRuleMode _mode;
         MyDefinitionId? _block;
+        bool _matchesEverything;
 
 
         
+        public bool MatchesEverything
+        {
+            get => _matchesEverything;
+            set
+            {
+                if (_matchesEverything != value)
+                {
+                    _matchesEverything = value;
+                    OnPropertyChanged(nameof(MatchesEverything));
+                }
+            }
+        }
         public string TypeId
         {
             get => _typeId;
@@ -62,7 +75,6 @@ namespace TorchPlugin
                 {
                     _typeId = value;
                     OnPropertyChanged(nameof(TypeId));
-                    ValidateBlockDefinition();
                 }
             }
         }
@@ -75,7 +87,6 @@ namespace TorchPlugin
                 {
                     _subtypeName = value;
                     OnPropertyChanged(nameof(SubtypeName));
-                    ValidateBlockDefinition();
                 }
             }
         }
@@ -105,19 +116,25 @@ namespace TorchPlugin
         }
 
 
-        void ValidateBlockDefinition()
+        public bool ValidateBlockDefinition()
         {
-            MyDefinitionId definition = default;
-            if (!string.IsNullOrWhiteSpace(_typeId)
-                && !string.IsNullOrWhiteSpace(_subtypeName)
-                && MyDefinitionId.TryParse(_typeId, _subtypeName, out definition))
+            if (MatchesEverything)
             {
-                _block = definition;
+                _block = null;
+                Plugin.Instance.Logger.Info($"ValidateBlockDefinition: MatchesEverything set, skipping parse.");
+                return true;
+            }
+            var res = MyObjectBuilderType.TryParse(_typeId, out var type);
+            if (res)
+            {
+                _block = new MyDefinitionId(type, string.IsNullOrEmpty(_subtypeName) || _subtypeName == "null" ? null : _subtypeName);
             }
             else
             {
                 _block = null;
             }
+            Plugin.Instance.Logger.Info($"ValidateBlockDefinition: {_typeId}/{_subtypeName} -> {_block?.ToString() ?? "<null>"} (valid={res})");
+            return res;
         }
 
         void OnPropertyChanged(string propertyName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -130,7 +147,17 @@ namespace TorchPlugin
         /// <param name="block">The <see cref="MySlimBlock"/> to check.</param>
         /// <returns><see langword="true"/> if <paramref name="block"/> matches this rule's definition, <see langword="false"/> otherwise.</returns>
         public bool BlockMatchesRule(MySlimBlock block)
-            => _block?.Equals(block.BlockDefinition.Id) ?? false;
+        {
+            if (MatchesEverything)
+            {
+                //Plugin.Instance.Logger.Info($"BlockMatchesRule check: MatchesEverything set, auto-true.");
+                return true;
+            }
+            var val = _block?.Equals(block.BlockDefinition.Id) ?? false;
+            //Plugin.Instance.Logger.Info($"BlockMatchesRule check: Rule({_block?.ToString() ?? "<null>"}) vs Block({block.BlockDefinition.Id}) = {val}");
+            return val;
+        }
+            
 
 
         public static Array TrackingTypes => Enum.GetValues(typeof(MyTrackableType));

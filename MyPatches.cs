@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using VRage.Game;
+using VRage.Game.Entity;
 using VRage.Game.ObjectBuilders.Components.BankingAndCurrency;
 using VRage.Game.ObjectBuilders.Definitions;
 using VRage.ObjectBuilders;
@@ -28,9 +29,18 @@ namespace TorchPlugin
         [HarmonyPatch(typeof(MyCubeGrid), "AddBlockInternal")]
         public static void MyCubeGrid_AddBlockInternal_Postfix(MyCubeGrid __instance, MySlimBlock block)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted && block != null)
+            try
             {
-                Plugin.Instance.TrackingManager.RegisterNewBlock(__instance, block);
+                Plugin.Instance.Logger.Info($"AddBlockInternal on grid {__instance.DisplayName} ({__instance.EntityId}) for block {block?.BlockDefinition?.Id} at {block?.Position}, result: {block != null}");
+                if (Plugin.Instance.TrackingManager.IsStarted && block != null)
+                {
+                    Plugin.Instance.TrackingManager.RegisterNewBlock(__instance, block);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in AddBlockInternal Harmony patch.");
+                throw;
             }
         }
         
@@ -39,9 +49,18 @@ namespace TorchPlugin
         [HarmonyPatch(typeof(MyCubeGrid), "AddBlock")]
         public static void MyCubeGrid_AddBlock_Postfix(MyCubeGrid __instance, MySlimBlock __result, MyObjectBuilder_CubeBlock objectBuilder, bool testMerge)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted && __result != null)
+            try
             {
-                Plugin.Instance.TrackingManager.RegisterNewBlock(__instance, __result);
+                //Plugin.Instance.Logger.Info($"AddBlock on grid {__instance.DisplayName} ({__instance.EntityId}) for block {objectBuilder?.GetId()} at {__result?.Position}, testMerge: {testMerge}, result: {__result != null}");
+                if (Plugin.Instance.TrackingManager.IsStarted && __result != null)
+                {
+                    Plugin.Instance.TrackingManager.RegisterNewBlock(__instance, __result);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in AddBlock Harmony patch.");
+                throw;
             }
         }
 
@@ -50,15 +69,24 @@ namespace TorchPlugin
         [HarmonyPatch(typeof(MyShipConnector), "UpdateConnectionStateConnecting")]
         public static void MyShipConnector_UpdateConnectionStateConnecting_Postfix(MyShipConnector __instance)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted)
+            try
             {
-                var other = (MyShipConnector)_fieldInfo_m_other.GetValue(__instance);
-                if (other != null)
+                Plugin.Instance.Logger.Info($"Connector at {__instance.Position} on grid {__instance.CubeGrid?.DisplayName} ({__instance.CubeGrid?.EntityId}) connected to another connector");
+                if (Plugin.Instance.TrackingManager.IsStarted)
                 {
-                    Plugin.Instance.TrackingManager.GridsConnected(__instance.CubeGrid, other.CubeGrid, MyTrackableType.CONNECTOR_STRUCTURE);
+                    var other = (MyShipConnector)_fieldInfo_m_other.GetValue(__instance);
+                    if (other != null)
+                    {
+                        Plugin.Instance.TrackingManager.GridsConnected(__instance.CubeGrid, other.CubeGrid, MyTrackableType.CONNECTOR_STRUCTURE);
 
-                    // note: both connectors' grids are notified about the other connector being added, but it shouldn't actually trigger the AddBlock methods
+                        // note: both connectors' grids are notified about the other connector being added, but it shouldn't actually trigger the AddBlock methods
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in UpdateConnectionStateConnecting Harmony patch.");
+                throw;
             }
         }
         // When connectors disconnect, where their system links have been broken, including block closing/damage/...
@@ -66,10 +94,19 @@ namespace TorchPlugin
         [HarmonyPatch(typeof(MyShipConnector), "RemoveLinks")]
         public static void MyShipConnector_RemoveLinks_Postfix(MyShipConnector __instance, MyShipConnector otherConnector)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted && otherConnector != null)
+            try
             {
-                // needs to handle if connectors are same grid or the construct is still linked
-                Plugin.Instance.TrackingManager.GridsDisconnected(__instance.CubeGrid, otherConnector.CubeGrid, MyTrackableType.CONNECTOR_STRUCTURE);
+                Plugin.Instance.Logger.Info($"Connector at {__instance.Position} on grid {__instance.CubeGrid?.DisplayName} ({__instance.CubeGrid?.EntityId}) disconnected from connector at {otherConnector?.Position} on grid {otherConnector?.CubeGrid?.DisplayName} ({otherConnector?.CubeGrid?.EntityId})");
+                if (Plugin.Instance.TrackingManager.IsStarted && otherConnector != null)
+                {
+                    // needs to handle if connectors are same grid or the construct is still linked
+                    Plugin.Instance.TrackingManager.GridsDisconnected(__instance.CubeGrid, otherConnector.CubeGrid, MyTrackableType.CONNECTOR_STRUCTURE);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in RemoveLinks Harmony patch.");
+                throw;
             }
         }
 
@@ -81,10 +118,19 @@ namespace TorchPlugin
             MyAttachableTopBlockBase topBlock,
             bool updateGroup)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted && __result && updateGroup)
+            try
             {
-                // needs to handle if mechanical blocks already had construct links or were same grid
-                Plugin.Instance.TrackingManager.GridsConnected(__instance.CubeGrid, topBlock.CubeGrid, MyTrackableType.CONSTRUCT);
+                Plugin.Instance.Logger.Info($"Mechanical block {__instance.BlockDefinition?.Id} at {__instance.Position} on grid {__instance.CubeGrid?.DisplayName} ({__instance.CubeGrid?.EntityId}) attached to top block {topBlock?.BlockDefinition?.Id} at {topBlock?.Position} on grid {topBlock?.CubeGrid?.DisplayName} ({topBlock?.CubeGrid?.EntityId}), success: {__result}, updateGroup: {updateGroup}");
+                if (Plugin.Instance.TrackingManager.IsStarted && __result && updateGroup)
+                {
+                    // needs to handle if mechanical blocks already had construct links or were same grid
+                    Plugin.Instance.TrackingManager.GridsConnected(__instance.CubeGrid, topBlock.CubeGrid, MyTrackableType.CONSTRUCT);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in Mechanical Attach Harmony patch.");
+                throw;
             }
         }
         // When subgrids disconnect, where their system links have been broken, including block closing/damage/...
@@ -95,10 +141,19 @@ namespace TorchPlugin
             MyCubeGrid topGrid,
             MyAttachableTopBlockBase topBlock)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted && topGrid != null)
+            try
             {
-                // needs to handle if mechanical blocks still have construct links (by other subgrids) - or i guess same grid too
-                Plugin.Instance.TrackingManager.GridsDisconnected(__instance.CubeGrid, topGrid, MyTrackableType.CONSTRUCT);
+                Plugin.Instance.Logger.Info($"Mechanical block {__instance.BlockDefinition?.Id} at {__instance.Position} on grid {__instance.CubeGrid?.DisplayName} ({__instance.CubeGrid?.EntityId}) broke links to top block {topBlock?.BlockDefinition?.Id} at {topBlock?.Position} on grid {topGrid?.DisplayName} ({topGrid?.EntityId})");
+                if (Plugin.Instance.TrackingManager.IsStarted && topGrid != null)
+                {
+                    // needs to handle if mechanical blocks still have construct links (by other subgrids) - or i guess same grid too
+                    Plugin.Instance.TrackingManager.GridsDisconnected(__instance.CubeGrid, topGrid, MyTrackableType.CONSTRUCT);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in Mechanical BreakLinks Harmony patch.");
+                throw;
             }
         }
 
@@ -109,28 +164,55 @@ namespace TorchPlugin
         [HarmonyPatch(typeof(MyCubeGrid), "RemoveBlockInternal")]
         public static void MyCubeGrid_RemoveBlockInternal_Prefix(MyCubeGrid __instance, MySlimBlock block, bool close, bool markDirtyDisconnects)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted && ((HashSet<MySlimBlock>)_fieldInfo_m_cubeBlocks.GetValue(__instance)).Contains(block))
+            try
             {
-                Plugin.Instance.TrackingManager.UnregisterBlock(__instance, block);
+                Plugin.Instance.Logger.Info($"RemoveBlockInternal on grid {__instance.DisplayName} ({__instance.EntityId}) for block {block?.BlockDefinition?.Id} at {block?.Position}");
+                if (Plugin.Instance.TrackingManager.IsStarted && ((HashSet<MySlimBlock>)_fieldInfo_m_cubeBlocks.GetValue(__instance)).Contains(block))
+                {
+                    Plugin.Instance.TrackingManager.UnregisterBlock(__instance, block);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in RemoveBlockInternal Harmony patch.");
+                throw;
             }
         }
 
         // Grid gets deleted after this (unregister)
-        [HarmonyPostfix]
+        [HarmonyPrefix]
         [HarmonyPatch(typeof(MyCubeGrid), "BeforeDelete")]
-        public static void MyCubeGrid_BeforeDelete_Postfix(MyCubeGrid __instance)
+        public static void MyCubeGrid_BeforeDelete_Prefix(MyCubeGrid __instance)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted)
-                Plugin.Instance.TrackingManager.UnregisterGrid(__instance);
+            try
+            {
+                Plugin.Instance.Logger.Info($"BeforeDelete on grid {__instance.DisplayName} ({__instance.EntityId})");
+                if (Plugin.Instance.TrackingManager.IsStarted)
+                    Plugin.Instance.TrackingManager.UnregisterGrid(__instance);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in BeforeDelete Harmony patch.");
+                throw;
+            }
         }
 
-        // Grid gets initialized and its cubes are generated - We need to register it so that we have an entity to register blocks to
-        [HarmonyPrefix]
-        [HarmonyPatch(typeof(MyCubeGrid), "InitInternal")]
-        public static void MyCubeGrid_InitInternal_Prefix(MyCubeGrid __instance, MyObjectBuilder_EntityBase objectBuilder, bool rebuildGrid)
+        // Any entity initialization from ObjectBuilder - crucially, grids that get loaded in from files (called on new grids too? idk)
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(MyEntity), "Init", new Type[] { typeof(MyObjectBuilder_EntityBase) })]
+        public static void MyEntity_Init_Postfix(MyEntity __instance, MyObjectBuilder_EntityBase objectBuilder)
         {
-            if (Plugin.Instance.TrackingManager.IsStarted)
-                Plugin.Instance.TrackingManager.RegisterGrid(__instance);
+            try
+            {
+                //Plugin.Instance.Logger.Info($"Init on entity {objectBuilder?.Name ?? "<null>"} ({__instance.EntityId}) - grid? {__instance is MyCubeGrid}");
+                if (__instance is MyCubeGrid grid && Plugin.Instance.TrackingManager.IsStarted)
+                    Plugin.Instance.TrackingManager.RegisterGridSingle(grid);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in Init Harmony patch.");
+                throw;
+            }
         }
     }
 }

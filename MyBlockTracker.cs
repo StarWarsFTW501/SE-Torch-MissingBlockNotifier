@@ -131,6 +131,8 @@ namespace TorchPlugin
             if (!_matches.ContainsKey(target))
                 throw new Exception("Attempted to register block belonging to an untracked trackable object! Indicative of error in plugin! Please disable the plugin and inform author!");
 
+            //Plugin.Instance.Logger.Info($"Tracker of rule '{Rule.TypeId}\\{Rule.SubtypeName}' registers block, proceeding to match check...");
+
             // if block matches rule
             if (Rule.BlockMatchesRule(block))
             {
@@ -189,8 +191,7 @@ namespace TorchPlugin
         /// </summary>
         /// <param name="pullingFrom"><see cref="MyTrackable"/> that is being incorporated into another one.</param>
         /// <param name="mergingInto"><see cref="MyTrackable"/> that is accepting tracked blocks from the first one.</param>
-        /// <returns><see cref="ScanJob"/> for merging of <paramref name="pullingFrom"/>'s blocks, or null if none is required.</returns>
-        public ScanJob MergeTrackables(MyTrackable pullingFrom, MyTrackable mergingInto)
+        public void MergeTrackables(MyTrackable pullingFrom, MyTrackable mergingInto)
         {
             var targetInto = mergingInto?.GetAncestorOfType(Rule.Type)
                 ?? throw new NullReferenceException($"No ancestor of type '{Rule.Type}' found for trackable during merge as target!");
@@ -211,27 +212,12 @@ namespace TorchPlugin
 
                 _matches[targetInto] += matchesFrom;
 
-                // no need for simultaneous scan job, we used already cached match counts
-                return null;
+                return;
             }
 
-            if (targetFrom == pullingFrom)
-            {
-                _matches[targetInto] += _matches[targetFrom];
+            _matches[targetInto] += _matches[targetFrom];
 
-                _matches.Remove(targetFrom);
-
-                return null;
-            }
-
-            // we are moving blocks below Rule type = we need to only move the number of blocks this trackable targets
-                
-            return new ScanJob(Rule.BlockMatchesRule, m =>
-            {
-                _matches[targetInto] += m;
-
-                _matches[targetFrom] -= m;
-            });
+            _matches.Remove(targetFrom);
         }
 
         /// <summary>
@@ -257,11 +243,6 @@ namespace TorchPlugin
                 throw new InvalidOperationException("Attempted to split an untracked trackable object!");
             if (!_matches.ContainsKey(targetInto))
                 throw new InvalidOperationException("Attempted to move blocks into an untracked trackable object!");
-
-            if (target == targetInto)
-            {
-                // in case we are splitting 
-            }
 
             return new ScanJob(Rule.BlockMatchesRule, m =>
             {

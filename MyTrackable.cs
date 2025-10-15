@@ -11,7 +11,7 @@ namespace TorchPlugin
     {
         public MyTrackableType TrackableType { get; protected set; }
         public MyTrackable Parent = null;
-        public IEnumerable<MyTrackable> Children;
+        public List<MyTrackable> Children;
 
         protected int _containedCount;
         public int ContainedCount => _containedCount;
@@ -75,7 +75,41 @@ namespace TorchPlugin
         /// </summary>
         /// <param name="child"><see cref="MyTrackable"/> child to remove.</param>
         public void RemoveChild(MyTrackable child)
-            => Children = Children.Where(c => c != child).ToList();
+        {
+            if (Children.Remove(child))
+                _containedCount--;
+        }
+
+        /// <summary>
+        /// Adds a <paramref name="child"/> to this <see cref="MyTrackable"/> and reassigns its ancestor appropriately. Does not remove <paramref name="child"/> from previous ancestry!
+        /// </summary>
+        /// <param name="child"><see cref="MyTrackable"/> child to add.</param>
+        public void AddChild(MyTrackable child)
+        {
+            Children.Add(child);
+            child.Parent = this;
+            _containedCount += child.ContainedCount;
+        }
+
+        /// <summary>
+        /// Clears all children from this <see cref="MyTrackable"/>. Does not remove ancestry links from children!
+        /// </summary>
+        public void ClearChildren()
+        {
+            Children.Clear();
+            _containedCount = 0;
+        }
+
+        /// <summary>
+        /// Destroys all ancestry links in the hierarchy below this <see cref="MyTrackable"/>. Does not take care of references to this <see cref="MyTrackable"/> from above in the hierarchy!
+        /// </summary>
+        public void RazeTree()
+        {
+            foreach (var child in Children)
+                child.RazeTree();
+            Children.Clear();
+            _containedCount = 0;
+        }
 
         /// <summary>
         /// Generates a human-readable identifier of this <see cref="MyTrackable"/> with the largest <see cref="MyCubeGrid"/>'s name and potentially number of other connected <see cref="MyCubeGrid"/>s.
@@ -87,7 +121,6 @@ namespace TorchPlugin
             int maxSize = 0;
             foreach (var grid in GetAllLeafProxies())
             {
-                Plugin.Instance.Logger.Info($"GetDisplayName() - Visiting {grid.Grid.DisplayName} - blocks: {grid.Grid.BlocksCount}");
                 if (grid.Grid.BlocksCount > maxSize)
                 {
                     maxSize = grid.Grid.BlocksCount;

@@ -33,10 +33,13 @@ namespace TorchPlugin
         /// <param name="trackable">The <see cref="MyTrackable"/> to check with this group.</param>
         public void EnqueueMessageForTrackable(MyTrackable trackable)
         {
+            Plugin.Instance.Logger.Info($"Group '{Name}' checking trackable '{trackable.GetDisplayName()}' for message enqueue...");
+
             // check grid count rule first
             if (Type != MyTrackableType.GRID)
             {
                 int grids = trackable.ContainedCount;
+                Plugin.Instance.Logger.Info($"Trackable '{trackable.GetDisplayName()}' has {grids} grids. Comparing to Group '{Name}' mode {GridCountMode} and target {GridCount}...");
                 if (GridCountMode == MyRuleMode.LESS && !(grids < GridCount))
                     return;
                 else if (GridCountMode == MyRuleMode.EQUAL && !(grids == GridCount))
@@ -45,6 +48,17 @@ namespace TorchPlugin
                     return;
             }
 
+            // check block count rule second
+            var blockCount = trackable.GetAllLeafProxies().Sum(g => g.Grid.BlocksCount);
+            Plugin.Instance.Logger.Info($"Trackable '{trackable.GetDisplayName()}' has {blockCount} blocks. Comparing to Group '{Name}' mode {BlockCountMode} and target {BlockCount}...");
+            if (BlockCountMode == MyRuleMode.LESS && !(blockCount < BlockCount))
+                return;
+            else if (BlockCountMode == MyRuleMode.EQUAL && !(blockCount == BlockCount))
+                return;
+            else if (BlockCountMode == MyRuleMode.MORE && !(blockCount > BlockCount))
+                return;
+
+            Plugin.Instance.Logger.Info($"Checking matches...");
             // check if we match the rules
             bool match = Mode == MyGroupMatchMode.ALL || Rules.Count == 0;
             foreach (var rule in Rules)
@@ -65,6 +79,7 @@ namespace TorchPlugin
 
             if (match)
             {
+                Plugin.Instance.Logger.Info($"Matches accepted, gathering players via {MessageMode}...");
                 // look for owners
                 var ownedBlocksByOwner = new Dictionary<long, int>();
 
@@ -72,23 +87,25 @@ namespace TorchPlugin
 
                 foreach (var grid in trackable.GetAllLeafProxies())
                 {
-                    var ownershipManager = _fieldInfo_m_ownershipManager.GetValue(grid);
+                    var ownershipManager = _fieldInfo_m_ownershipManager.GetValue(grid.Grid);
 
-                    var allOwners = grid.Grid.SmallOwners;
+                    var dict = (Dictionary<long, int>)_fieldInfo_PlayerOwnedValidBlocks.GetValue(ownershipManager);
 
-                    foreach (var owner in allOwners)
+                    Plugin.Instance.Logger.Info($"Contained grid '{grid.Grid.DisplayName}' has {dict.Count} owners.");
+
+                    foreach (var owner in dict)
                     {
-                        var dict = (Dictionary<long, int>)_fieldInfo_PlayerOwnedValidBlocks.GetValue(ownershipManager);
-
-                        int ownedBlocks = dict[owner];
+                        int ownedBlocks = owner.Value;
 
                         totalBlocks += ownedBlocks;
 
-                        if (!ownedBlocksByOwner.ContainsKey(owner))
-                            ownedBlocksByOwner[owner] = ownedBlocks;
-                        else ownedBlocksByOwner[owner] += ownedBlocks;
+                        if (!ownedBlocksByOwner.ContainsKey(owner.Key))
+                            ownedBlocksByOwner[owner.Key] = ownedBlocks;
+                        else ownedBlocksByOwner[owner.Key] += ownedBlocks;
                     }
                 }
+
+                Plugin.Instance.Logger.Info($"Total blocks in trackable: {totalBlocks}. Found {ownedBlocksByOwner.Count} total owners.");
 
 
                 var toNotify = new List<long>();
@@ -100,12 +117,14 @@ namespace TorchPlugin
                         int ownedBlocks = owner.Value;
                         if (ownedBlocks > maxBlocks)
                         {
+                            Plugin.Instance.Logger.Info($"{owner} is biggest owner so far, with {ownedBlocks} blocks.");
                             toNotify.Clear();
                             toNotify.Add(owner.Key);
                             maxBlocks = ownedBlocks;
                         }
                         else if (ownedBlocks == maxBlocks)
                         {
+                            Plugin.Instance.Logger.Info($"{owner} is tied, with {ownedBlocks} blocks.");
                             toNotify.Add(owner.Key);
                         }
                     }
@@ -128,6 +147,7 @@ namespace TorchPlugin
                         _toMessageTrackablesByPlayer[owner] = new List<MyTrackable> { trackable };
                     else _toMessageTrackablesByPlayer[owner].Add(trackable);
                 }
+                Plugin.Instance.Logger.Info($"{toNotify.Count} players found, enqueued.");
             }
         }
 
@@ -142,7 +162,7 @@ namespace TorchPlugin
                 stringBuilder.Clear().Append(ChatMessage);
 
                 foreach (var trackable in messagePair.Value)
-                    stringBuilder.Append('\n').Append(trackable.GetDisplayName());
+                    stringBuilder.Append("\n - ").Append(trackable.GetDisplayName());
 
                 Plugin.Instance.SendChatMessageToIdentityId(stringBuilder.ToString(), messagePair.Key);
             }
@@ -154,8 +174,8 @@ namespace TorchPlugin
         MyTrackableType _type = MyTrackableType.CONSTRUCT;
         MyGroupMatchMode _mode = MyGroupMatchMode.ALL;
         MyGroupMessageMode _messageMode = MyGroupMessageMode.BIG_OWNERS;
-        MyRuleMode _gridCountMode = MyRuleMode.MORE;
-        int _gridCount = 0;
+        MyRuleMode _gridCountMode = MyRuleMode.MORE, _blockCountMode = MyRuleMode.MORE;
+        int _gridCount = 0, _blockCount = 0;
         float _fractionOwnedForMessage = .2f;
         List<MyTrackingRule> _rules = new List<MyTrackingRule>();
         public string Name
@@ -227,6 +247,30 @@ namespace TorchPlugin
                 {
                     _gridCountMode = value;
                     OnPropertyChanged(nameof(GridCountMode));
+                }
+            }
+        }
+        public int BlockCount
+        {
+            get => _blockCount;
+            set
+            {
+                if (_blockCount != value)
+                {
+                    _blockCount = value;
+                    OnPropertyChanged(nameof(BlockCount));
+                }
+            }
+        }
+        public MyRuleMode BlockCountMode
+        {
+            get => _blockCountMode;
+            set
+            {
+                if (_blockCountMode != value)
+                {
+                    _blockCountMode = value;
+                    OnPropertyChanged(nameof(BlockCountMode));
                 }
             }
         }

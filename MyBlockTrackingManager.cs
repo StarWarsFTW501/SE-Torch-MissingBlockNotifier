@@ -29,7 +29,7 @@ namespace TorchPlugin
         {
             var sb = new StringBuilder();
 
-            var source = node?.Children ?? _topMostTrackables;
+            var source = node?.Children ?? _topMostTrackables.Select(t => t as MyTrackable);
 
             foreach (var trackable in source)
             {
@@ -109,8 +109,11 @@ namespace TorchPlugin
                 }
                 else
                 {
+                    _messageTimer?.Dispose();
+
                     int timerPeriodMillis = (int)seconds * 1000;
-                    _messageTimer = new Timer(_ => ExecuteNotification(), null, timerPeriodMillis, timerPeriodMillis);
+                    if (timerPeriodMillis > 0)
+                        _messageTimer = new Timer(_ => ExecuteNotification(), null, timerPeriodMillis, timerPeriodMillis);
                 }
 
                 Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} message timer (re)started.");
@@ -170,7 +173,7 @@ namespace TorchPlugin
                 }
                 Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} LOAD - Trackers for group {group.Name} initialized.");
             }
-            Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} LOAD - All trackers initialized.");
+            Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} LOAD - All trackers initialized. Total: {_trackers.Values.Count}");
             LoadTrackables();
             Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} LOAD - Loaded.");
         }
@@ -216,6 +219,28 @@ namespace TorchPlugin
         }
 
         /// <summary>
+        /// Registers a single <see cref="MyCubeGrid"/> without its neighbours. Assigns to existing <see cref="MyTrackable"/> or creates a new one.
+        /// </summary>
+        /// <param name="grid">The <see cref="MyCubeGrid"/> to be registered.</param>
+        public void RegisterGridSingle(MyCubeGrid grid)
+        {
+            if (_trackablesByGrid.ContainsKey(grid.EntityId))
+            {
+                Plugin.Instance.Logger.Info($"Grid '{grid.DisplayName}' ({grid.EntityId}) is already registered - skipping registration.");
+                return;
+            }
+
+            Plugin.Instance.Logger.Info($"Registering single grid '{grid.DisplayName}'...");
+            var gt = new MyTrackable_Grid(grid);
+            var construct = new MyTrackable_Construct(new[] { gt });
+            var connectorStructure = new MyTrackable_ConnectorStructure(new[] { construct });
+            _trackablesByGrid[grid.EntityId] = gt;
+            _topMostTrackables.Add(connectorStructure);
+            foreach (var tracker in _trackers.Values)
+                tracker.RegisterNewTrackable(gt);
+        }
+
+        /// <summary>
         /// Registers a <see cref="MyCubeGrid"/> and all its neighbours. Assigns to existing <see cref="MyTrackable"/>s or creates new ones.
         /// </summary>
         /// <remarks>
@@ -227,7 +252,10 @@ namespace TorchPlugin
         {
             // if this grid is already registered (for example by having been spawned as a neighbour to a previously handled grid), exit registration
             if (_trackablesByGrid.ContainsKey(grid.EntityId))
+            {
+                Plugin.Instance.Logger.Info($"Grid '{grid.DisplayName}' ({grid.EntityId}) is already registered - skipping registration.");
                 return;
+            }
 
             var blacklist = new HashSet<MyCubeGrid>();
             var constructGrids = new List<MyCubeGrid>();
@@ -236,13 +264,19 @@ namespace TorchPlugin
 
             var trackablesToAdd = new List<MyTrackable>();
 
-            if (trackablesToScan == null)
-                trackablesToScan = trackablesToScan ?? new List<MyTrackable_Grid>();
+            var newlyCreated = new List<MyTrackable_Grid>();
 
             Plugin.Instance.Logger.Info($"Registering grid '{grid.DisplayName}' and its neighbours...");
 
+
             // this retrieves all grids in the current grid's connector structure, the largest extent of our trackable object ancestry
             var connectorStructureGrids = grid.GetConnectedGrids(GridLinkTypeEnum.Logical);
+
+            var sb = new StringBuilder();
+            foreach (var connector in connectorStructureGrids)
+                sb.AppendLine($" - {connector.DisplayName}");
+
+            Plugin.Instance.Logger.Info($"Found {connectorStructureGrids.Count} connected grids in connector structure:\n{sb.ToString().TrimEnd()}");
 
             MyTrackable topMostParent = null;
             MyTrackable parent = null;
@@ -291,8 +325,10 @@ namespace TorchPlugin
                             // register it for assigning of a construct (parent)
                             trackablesToAdd.Add(trackable);
 
+                            newlyCreated.Add(trackable);
+
                             // register it for scanning by trackers once its ancestry is assigned
-                            trackablesToScan.Add(trackable);
+                            trackablesToScan?.Add(trackable);
 
                             Plugin.Instance.Logger.Info($"Grid proxy created and registered for {constructGrid.DisplayName}.");
                         }
@@ -320,7 +356,7 @@ namespace TorchPlugin
             // all constructs have been initialized properly - we need to group them into a (perhaps new) connector structure
             FinalizeParent(ref topMostParent, constructsToAdd, MyTrackableType.CONNECTOR_STRUCTURE);
 
-            foreach (var trackable in trackablesToScan)
+            foreach (var trackable in newlyCreated)
                 foreach (var tracker in _trackers.Values)
                     tracker.TryRegisterNewTrackable(trackable);
 
@@ -340,6 +376,7 @@ namespace TorchPlugin
             // we have all newly created grid proxies with ancestry assigned - we need to scan them with each tracker
             foreach (var trackable in trackablesToScan)
             {
+
                 foreach (var tracker in _trackers.Values)
                 {
                     // grabs a job for this trackable's scanning
@@ -354,6 +391,7 @@ namespace TorchPlugin
 
         void ScanGridWithJobs(MyCubeGrid gridToScan, IEnumerable<MyBlockTracker.ScanJob> jobs)
         {
+            Plugin.Instance.Logger.Info($"Scanning grid '{gridToScan.DisplayName}' with {jobs.Count()} jobs...");
             // only scan blocks if there is at least one tracker that wants to scan them
             if (jobs.Any())
             {
@@ -405,10 +443,7 @@ namespace TorchPlugin
                 if ((type == MyTrackableType.CONNECTOR_STRUCTURE && !(parent is MyTrackable_ConnectorStructure)) || (type == MyTrackableType.CONSTRUCT && !(parent is MyTrackable_Construct)))
                     throw new InvalidOperationException($"Cannot finalize creation of parent proxy - '{type}' does not match type of passed found parent!");
                 foreach (var child in children)
-                {
-                    child.Parent = parent;
-                    parent.Children = parent.Children.Append(child);
-                }
+                    parent.AddChild(child);
             }
         }
         
@@ -421,6 +456,7 @@ namespace TorchPlugin
         public void RegisterNewBlock(MyCubeGrid parentGrid, MySlimBlock block)
         {
             var trackable = _trackablesByGrid[parentGrid.EntityId];
+            //Plugin.Instance.Logger.Info($"Registering new block {block.BlockDefinition.Id} at {block.Position} on grid '{parentGrid.DisplayName}' ({parentGrid.EntityId}) in trackable '{trackable.GetDisplayName()}' with {_trackers.Values.Count} trackers...");
             foreach (var tracker in _trackers.Values)
                 tracker.RegisterNewBlock(trackable, block);
         }
@@ -433,18 +469,53 @@ namespace TorchPlugin
         /// <param name="connectionLevel">The <see cref="MyTrackableType"/> level on which grids were connected.</param>
         public void GridsConnected(MyCubeGrid grid1, MyCubeGrid grid2, MyTrackableType connectionLevel)
         {
-            var trackable1 = _trackablesByGrid.GetValueOrDefault(grid1.EntityId)?.GetAncestorOfType(connectionLevel)
-                ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have initialized ancestry to level {connectionLevel}!");
-            var trackable2 = _trackablesByGrid.GetValueOrDefault(grid2.EntityId)?.GetAncestorOfType(connectionLevel)
-                ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have initialized ancestry to level {connectionLevel}!");
+            MyTrackable trackable1 =_trackablesByGrid.GetValueOrDefault(grid1.EntityId)?.GetAncestorOfType(connectionLevel)
+                ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have a proxy of appropriate level!");
+            MyTrackable trackable2 = _trackablesByGrid.GetValueOrDefault(grid2.EntityId)?.GetAncestorOfType(connectionLevel)
+                ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid2.DisplayName}' does not have a proxy of appropriate level!");
+
+
+            Plugin.Instance.Logger.Info($"Merging trackables of type {connectionLevel} - '{trackable1.GetDisplayName()}' <- '{trackable2.GetDisplayName()}'");
 
             if (grid1 != grid2)
             {
-                foreach (var tracker in _trackers.Values)
+                for (int i = (int)connectionLevel; i < 3; i++)
                 {
-                    tracker.MergeTrackables(trackable2, trackable1);
+                    trackable1 = trackable1.GetAncestorOfType((MyTrackableType)i);
+                    trackable2 = trackable2.GetAncestorOfType((MyTrackableType)i);
+
+                    if (trackable2 == null || trackable1 == trackable2)
+                        break; // they are already connected on this level or hanging ancestry structure without leaves was culled - exit
+
+                    // merge all structures higher or equal to connection level
+
+                    // trackers below the connection level don't care, trackers above are notified by subsequent iterations of this loop if they weren't merged already
+                    foreach (var tracker in _trackers.Values)
+                        if (tracker.Rule.Type == (MyTrackableType)i)
+                            tracker.MergeTrackables(trackable2, trackable1);
+
+                    // move children of trackable2 to trackable1
+                    foreach (var child in trackable2.Children)
+                    {
+                        Plugin.Instance.Logger.Info($"Reassigning child '{child.GetDisplayName()}' of type {child.TrackableType} from '{trackable2.GetDisplayName()}' to '{trackable1.GetDisplayName()}'");
+                        trackable1.AddChild(child);
+                        Plugin.Instance.Logger.Info($"Child '{child.GetDisplayName()}' reassigned. Is now in {trackable1.GetDisplayName()}? {trackable1.Children.Find(c => c == child) != null} - Parent now '{child.Parent?.GetDisplayName() ?? "<null>"}'");
+                    }
+                    trackable2.ClearChildren();
+
+
+                    // unregister trackable2 and cull its ancestry if it has no more leaves
+
+                    if (trackable2 is MyTrackable_Grid tg)
+                        _trackablesByGrid.Remove(tg.Grid.EntityId);
+
+                    var highestProxy = trackable2.GetHighestSingleAncestor();
+
+                    if (highestProxy is MyTrackable_ConnectorStructure cs)
+                        _topMostTrackables.Remove(cs);
+
+                    highestProxy.RazeTree();
                 }
-                UnregisterTrackableInternal(trackable2);
             }
         }
 
@@ -566,8 +637,17 @@ namespace TorchPlugin
         {
             trackable = trackable.GetHighestSingleAncestor();
 
+            var jobs = new List<MyBlockTracker.ScanJob>();
+
             foreach (var tracker in _trackers.Values)
-                tracker.UnregisterTrackable(trackable);
+            {
+                var job = tracker.UnregisterTrackable(trackable);
+                if (job != null) // can be null if the tracker is of a lower or equal level to the unregistered trackable, therefore it erases all entries without scanning
+                    jobs.Add(job);
+            }
+
+            foreach (var leaf in trackable.GetAllLeafProxies())
+                ScanGridWithJobs(leaf.Grid, jobs);
 
             trackable.Parent?.RemoveChild(trackable);
 
@@ -584,6 +664,7 @@ namespace TorchPlugin
         /// </summary>
         public void ExecuteNotification()
         {
+            Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} - Executing notification...");
             foreach (var group in Plugin.Instance.Config.Groups)
             {
                 foreach (var connectorStructure in _topMostTrackables)
