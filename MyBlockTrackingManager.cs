@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using VRage.Network;
 using Torch.Managers;
 using Torch.API;
+using SteamKit2.Internal;
 
 namespace TorchPlugin
 {
@@ -148,6 +149,11 @@ namespace TorchPlugin
         List<MyTrackable_ConnectorStructure> _topMostTrackables = new List<MyTrackable_ConnectorStructure>();
 
         /// <summary>
+        /// Contains all trackable objects that have been marked for removal and are pending finalization.
+        /// </summary>
+        List<MyTrackable> _markedForRemoval = new List<MyTrackable>();
+
+        /// <summary>
         /// Loads all <see cref="MyTrackingRule"/>s from config and creates a <see cref="MyBlockTracker"/> for each. Clears all existing trackers and trackables first.
         /// </summary>
         /// <remarks>
@@ -205,7 +211,7 @@ namespace TorchPlugin
             var allEntities = MyEntities.GetEntities();
 
             List<MyTrackable_Grid> toScan = new List<MyTrackable_Grid>();
-            
+
             foreach (var entity in allEntities)
             {
                 if (entity is MyCubeGrid grid)
@@ -446,7 +452,7 @@ namespace TorchPlugin
                     parent.AddChild(child);
             }
         }
-        
+
 
         /// <summary>
         /// Registers a new <see cref="MySlimBlock"/> with the appropriate <see cref="MyTrackable"/> and updates trackers.
@@ -469,7 +475,7 @@ namespace TorchPlugin
         /// <param name="connectionLevel">The <see cref="MyTrackableType"/> level on which grids were connected.</param>
         public void GridsConnected(MyCubeGrid grid1, MyCubeGrid grid2, MyTrackableType connectionLevel)
         {
-            MyTrackable trackable1 =_trackablesByGrid.GetValueOrDefault(grid1.EntityId)?.GetAncestorOfType(connectionLevel)
+            MyTrackable trackable1 = _trackablesByGrid.GetValueOrDefault(grid1.EntityId)?.GetAncestorOfType(connectionLevel)
                 ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have a proxy of appropriate level!");
             MyTrackable trackable2 = _trackablesByGrid.GetValueOrDefault(grid2.EntityId)?.GetAncestorOfType(connectionLevel)
                 ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid2.DisplayName}' does not have a proxy of appropriate level!");
@@ -484,8 +490,8 @@ namespace TorchPlugin
                     trackable1 = trackable1.GetAncestorOfType((MyTrackableType)i);
                     trackable2 = trackable2.GetAncestorOfType((MyTrackableType)i);
 
-                    if (trackable2 == null || trackable1 == trackable2)
-                        break; // they are already connected on this level or hanging ancestry structure without leaves was culled - exit
+                    if (trackable2 == null || trackable2.MarkedForRemoval || trackable1 == trackable2)
+                        break; // they are already connected on this level or hanging ancestry structure without leaves was culled / marked for cull - exit
 
                     // merge all structures higher or equal to connection level
 
@@ -501,20 +507,13 @@ namespace TorchPlugin
                         trackable1.AddChild(child);
                         Plugin.Instance.Logger.Info($"Child '{child.GetDisplayName()}' reassigned. Is now in {trackable1.GetDisplayName()}? {trackable1.Children.Find(c => c == child) != null} - Parent now '{child.Parent?.GetDisplayName() ?? "<null>"}'");
                     }
-                    trackable2.ClearChildren();
+                    trackable2.ClearChildren(); // otherwise children would be culled as if they were supposed to be removed, which is not the case
 
 
                     // unregister trackable2 and cull its ancestry if it has no more leaves
 
-                    if (trackable2 is MyTrackable_Grid tg)
-                        _trackablesByGrid.Remove(tg.Grid.EntityId);
-
-                    var highestProxy = trackable2.GetHighestSingleAncestor();
-
-                    if (highestProxy is MyTrackable_ConnectorStructure cs)
-                        _topMostTrackables.Remove(cs);
-
-                    highestProxy.RazeTree();
+                    foreach (var t in trackable2.GetHighestSingleAncestor().GetAllProxies())
+                        t.MarkedForRemoval = true;
                 }
             }
         }
@@ -538,7 +537,49 @@ namespace TorchPlugin
             var trackable1 = _trackablesByGrid.GetValueOrDefault(grid1.EntityId)
                 ?? throw new NullReferenceException($"Cannot disconnect grids - Involved grid '{grid1.DisplayName}' does not have a grid proxy!");
             var trackable2 = _trackablesByGrid.GetValueOrDefault(grid2.EntityId)
-                ?? throw new NullReferenceException($"Cannot disconnect grids - Involved grid '{grid1.DisplayName}' does not have a grid proxy!");
+                ?? throw new NullReferenceException($"Cannot disconnect grids - Involved grid '{grid2.DisplayName}' does not have a grid proxy!");
+
+            if (trackable1.MarkedForRemoval && trackable2.MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"Grids '{grid1.DisplayName}' and '{grid2.DisplayName}' are marked for removal! Ignoring disconnect.");
+                return;
+            }
+
+            // if the grid that separated is already marked for removal, we just unregister it from all trackers that care about this level and above
+            if (trackable2.MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"Second grid '{grid2.DisplayName}' is marked for removal! Disconnect equates to unregister from first grid's trackers.");
+                var scanJobs = new List<MyBlockTracker.ScanJob>();
+                foreach (var tracker in _trackers.Values)
+                {
+                    if (tracker.Rule.Type >= disconnectLevel)
+                    {
+                        var job = tracker.UnregisterTrackable(trackable2);
+                        if (job != null) // can be null if the tracker is of a lower or equal level to the unregistered trackable, therefore it erases all entries without scanning
+                            scanJobs.Add(job);
+                    }
+                }
+                ScanGridWithJobs(grid2, scanJobs);
+                return;
+            }
+
+            // similarly for the "parent" grid (they are actually equal)
+            if (trackable1.MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"First grid '{grid1.DisplayName}' is marked for removal! Disconnect equates to unregister from first grid's trackers.");
+                var scanJobs = new List<MyBlockTracker.ScanJob>();
+                foreach (var tracker in _trackers.Values)
+                {
+                    if (tracker.Rule.Type >= disconnectLevel)
+                    {
+                        var job = tracker.UnregisterTrackable(trackable1);
+                        if (job != null) // can be null if the tracker is of a lower or equal level to the unregistered trackable, therefore it erases all entries without scanning
+                            scanJobs.Add(job);
+                    }
+                }
+                ScanGridWithJobs(grid1, scanJobs);
+                return;
+            }
 
             for (int i = (int)disconnectLevel; i < 3; i++)
             {
@@ -577,6 +618,7 @@ namespace TorchPlugin
                 if (areStillConnected)
                     break;
 
+
                 // they no longer have an appropriate connection - separate them on appropriate level:
 
                 // create new parent for grid2
@@ -606,9 +648,12 @@ namespace TorchPlugin
 
             foreach (var tracker in _trackers.Values)
             {
-                var job = tracker.SplitTrackable(trackable1, trackable2);
-                if (job != null) // can be null if the tracker is of a higher level than what we ended up splitting, therefore it desn't care about what changed
-                    jobs.Add(job);
+                if (tracker.Rule.Type >= disconnectLevel)
+                {
+                    var job = tracker.SplitTrackable(trackable1, trackable2);
+                    if (job != null) // can be null if the tracker is of a higher level than what we ended up splitting, therefore it desn't care about what changed
+                        jobs.Add(job);
+                }
             }
 
             ScanGridWithJobs(grid2, jobs);
@@ -637,25 +682,9 @@ namespace TorchPlugin
         {
             trackable = trackable.GetHighestSingleAncestor();
 
-            var jobs = new List<MyBlockTracker.ScanJob>();
+            RemoveTrackableFromTrackers(trackable);
 
-            foreach (var tracker in _trackers.Values)
-            {
-                var job = tracker.UnregisterTrackable(trackable);
-                if (job != null) // can be null if the tracker is of a lower or equal level to the unregistered trackable, therefore it erases all entries without scanning
-                    jobs.Add(job);
-            }
-
-            foreach (var leaf in trackable.GetAllLeafProxies())
-                ScanGridWithJobs(leaf.Grid, jobs);
-
-            trackable.Parent?.RemoveChild(trackable);
-
-            foreach (var leaf in trackable.GetAllLeafProxies())
-                _trackablesByGrid.Remove(leaf.Grid.EntityId);
-
-            if (trackable is MyTrackable_ConnectorStructure connectorStructure)
-                _topMostTrackables.Remove(connectorStructure);
+            trackable.MarkedForRemoval = true;
         }
 
 
@@ -676,6 +705,51 @@ namespace TorchPlugin
                 }
                 group.SendQueuedMessages();
             }
+        }
+
+        /// <summary>
+        /// Removes all <see cref="MyTrackable"/>s that have been marked for removal and properly unregisters them from this manager's collections.
+        /// </summary>
+        public void FinalizeTrackableRemovals()
+        {
+            if (!IsStarted)
+                return;
+
+            var toRemoveGrids = new List<long>();
+
+            for (int i = _topMostTrackables.Count - 1; i >= 0; i--)
+            {
+                var trackable = _topMostTrackables[i];
+                if (trackable.ExecuteRemoval(toRemoveGrids))
+                {
+                    _topMostTrackables.RemoveAt(i);
+                    foreach (var tracker in _trackers.Values)
+                        tracker.UnregisterTrackable(trackable);
+                    Plugin.Instance.Logger.Info($"Removed topmost trackable '{trackable.GetDisplayName()}' from tracking manager.");
+                }
+            }
+            foreach (var key in toRemoveGrids)
+            {
+                Plugin.Instance.Logger.Info($"Removed trackable for grid '{_trackablesByGrid[key].Grid.DisplayName}' of entity ID '{key}' from tracking manager.");
+                _trackablesByGrid.Remove(key);
+            }
+        }
+
+        /// <summary>
+        /// Removes a trackable from all trackers. Executes any <see cref="MyBlockTracker.ScanJob"/>s required by the unregister process.
+        /// </summary>
+        /// <param name="trackable">The <see cref="MyTrackable"/> to be removed from all trackers.</param>
+        public void RemoveTrackableFromTrackers(MyTrackable trackable)
+        {
+            var jobs = new List<MyBlockTracker.ScanJob>();
+            foreach (var tracker in _trackers.Values)
+            {
+                var job = tracker.UnregisterTrackable(trackable);
+                if (job != null)
+                    jobs.Add(job);
+            }
+            foreach (var leaf in trackable.GetAllLeafProxies())
+                ScanGridWithJobs(leaf.Grid, jobs);
         }
     }
 }

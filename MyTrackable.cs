@@ -13,8 +13,59 @@ namespace TorchPlugin
         public MyTrackable Parent = null;
         public List<MyTrackable> Children;
 
+        public bool MarkedForRemoval = false;
+
         protected int _containedCount;
         public int ContainedCount => _containedCount;
+
+        public void IncreaseContainedCount(int byAmount)
+        {
+            _containedCount += byAmount;
+            Parent?.IncreaseContainedCount(byAmount);
+        }
+        public void DecreaseContainedCount(int byAmount)
+        {
+            _containedCount -= byAmount;
+            Parent?.DecreaseContainedCount(byAmount);
+        }
+
+        /// <summary>
+        /// If marked for removal, kills self and all descendants, otherwise kills all descendants marked for removal, and if all descendants are removed, kills self as well. This includes removal from parent, if any exists. Returns whether this <see cref="MyTrackable"/> was removed.
+        /// </summary>
+        /// <param name="killedGridIds">Optional list to populate with IDs of killed <see cref="MyTrackable_Grid"/>s.</param>
+        /// <returns>Whether this <see cref="MyTrackable"/> killed itself and should be removed.</returns>
+        public virtual bool ExecuteRemoval(List<long> killedGridIds = null)
+        {
+            if (MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"Trackable '{GetDisplayName()}' marked for removal - razing tree...");
+                foreach (var proxy in GetAllLeafProxies())
+                {
+                    proxy.MarkedForRemoval = true;
+                    killedGridIds?.Add(proxy.Grid.EntityId);
+                }
+                Plugin.Instance.TrackingManager.RemoveTrackableFromTrackers(this);
+                RazeTree();
+                Parent?.RemoveChild(this);
+                return true;
+            }
+            // Plugin.Instance.Logger.Info($"Trackable '{GetDisplayName()}' is not marked for removal - enumerating children...");
+            MarkedForRemoval = true;
+            for (int i = Children.Count - 1; i >= 0; i--)
+            {
+                var child = Children[i];
+                if (!child.ExecuteRemoval(killedGridIds))
+                    MarkedForRemoval = false;
+            }
+
+            if (MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"All children of trackable '{GetDisplayName()}' were removed - forcing mark for removal and repeating...");
+                return ExecuteRemoval(killedGridIds);
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Walks the hierarchy downwards to find all (leaf and branching) <see cref="MyTrackable"/> descendants.
@@ -77,7 +128,7 @@ namespace TorchPlugin
         public void RemoveChild(MyTrackable child)
         {
             if (Children.Remove(child))
-                _containedCount--;
+                DecreaseContainedCount(child.ContainedCount);
         }
 
         /// <summary>
@@ -86,9 +137,11 @@ namespace TorchPlugin
         /// <param name="child"><see cref="MyTrackable"/> child to add.</param>
         public void AddChild(MyTrackable child)
         {
+            if (MarkedForRemoval)
+                throw new InvalidOperationException("Cannot add child to a trackable marked for removal!");
             Children.Add(child);
             child.Parent = this;
-            _containedCount += child.ContainedCount;
+            IncreaseContainedCount(child.ContainedCount);
         }
 
         /// <summary>
@@ -96,8 +149,8 @@ namespace TorchPlugin
         /// </summary>
         public void ClearChildren()
         {
+            DecreaseContainedCount(Children.Sum(c => c.ContainedCount));
             Children.Clear();
-            _containedCount = 0;
         }
 
         /// <summary>
@@ -105,10 +158,10 @@ namespace TorchPlugin
         /// </summary>
         public void RazeTree()
         {
+            DecreaseContainedCount(Children.Sum(c => c.ContainedCount));
             foreach (var child in Children)
                 child.RazeTree();
             Children.Clear();
-            _containedCount = 0;
         }
 
         /// <summary>
@@ -117,6 +170,9 @@ namespace TorchPlugin
         /// <returns>A human-readable identifier of this object including the name of the largest <see cref="MyCubeGrid"/>.</returns>
         public string GetDisplayName()
         {
+            if (MarkedForRemoval)
+                return $"<REMOVED TRACKABLE (owned {ContainedCount} leaves)>";
+
             MyCubeGrid largestGrid = null;
             int maxSize = 0;
             foreach (var grid in GetAllLeafProxies())
@@ -154,6 +210,24 @@ namespace TorchPlugin
         public override IEnumerable<MyTrackable_Grid> GetAllLeafProxies()
         {
             return new MyTrackable_Grid[] { this };
+        }
+
+        /// <summary>
+        /// If marked for removal, kills self and all descendants, otherwise kills all descendants marked for removal, and if all descendants are removed, kills self as well. This includes removal from parent, if any exists. Returns whether this <see cref="MyTrackable"/> was removed.
+        /// </summary>
+        /// <param name="killedGridIds">Optional list to populate with IDs of killed <see cref="MyTrackable_Grid"/>s.</param>
+        /// <returns>Whether this <see cref="MyTrackable"/> killed itself and should be removed.</returns>
+        public override bool ExecuteRemoval(List<long> killedGridIds = null)
+        {
+            if (MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"Grid trackable '{Grid.DisplayName}' marked for removal - killing self...");
+                Plugin.Instance.TrackingManager.RemoveTrackableFromTrackers(this);
+                killedGridIds?.Add(Grid.EntityId);
+                Parent?.RemoveChild(this);
+                return true;
+            }
+            return false;
         }
     }
     /// <summary>

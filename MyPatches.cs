@@ -180,19 +180,19 @@ namespace TorchPlugin
         }
 
         // Grid gets deleted after this (unregister)
-        [HarmonyPrefix]
-        [HarmonyPatch(typeof(MyCubeGrid), "BeforeDelete")]
-        public static void MyCubeGrid_BeforeDelete_Prefix(MyCubeGrid __instance)
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(MyCubeGrid), "UnregisterBlocksBeforeClose")]
+        public static void MyCubeGrid_UnregisterBlocksBeforeClose_Postfix(MyCubeGrid __instance)
         {
             try
             {
-                Plugin.Instance.Logger.Info($"BeforeDelete on grid {__instance.DisplayName} ({__instance.EntityId})");
+                Plugin.Instance.Logger.Info($"UnregisterBlocksBeforeClose on grid {__instance.DisplayName} ({__instance.EntityId})");
                 if (Plugin.Instance.TrackingManager.IsStarted)
                     Plugin.Instance.TrackingManager.UnregisterGrid(__instance);
             }
             catch (Exception ex)
             {
-                Plugin.Instance.Logger.Error(ex, "Unhandled exception in BeforeDelete Harmony patch.");
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in UnregisterBlocksBeforeClose Harmony patch.");
                 throw;
             }
         }

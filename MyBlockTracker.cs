@@ -239,10 +239,15 @@ namespace TorchPlugin
                 return null;
             }
 
+            if (targetFrom.MarkedForRemoval)
+            {
+
+            }
+
             if (!_matches.ContainsKey(targetFrom))
-                throw new InvalidOperationException("Attempted to split an untracked trackable object!");
+                throw new InvalidOperationException($"Attempted to split an untracked trackable object! Level: {Rule.Type} - Trackable: {targetFrom.GetDisplayName()}");
             if (!_matches.ContainsKey(targetInto))
-                throw new InvalidOperationException("Attempted to move blocks into an untracked trackable object!");
+                throw new InvalidOperationException($"Attempted to move blocks into an untracked trackable object! Level: {Rule.Type} - Trackable: {targetInto.GetDisplayName()}");
 
             return new ScanJob(Rule.BlockMatchesRule, m =>
             {

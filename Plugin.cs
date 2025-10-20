@@ -26,6 +26,9 @@ namespace TorchPlugin
     {
         // TODO:
         // - Fix crash when deleting multi-grid proxy - appears to be caused by mechanical disconnect being called after the grid is already removed from the world (ignore unregister of non-existent grid?)
+
+        // - Delayed load of grids - currently grids initialized as subgrid connections get their whole ancestry constructed and then immediately destroyed when the connection is made, making ancestry init unnecessary
+
         // - Verify operation of complex structure merging/splitting (so far we only know simple grid addition/removal and subgrid merging works)
         // - Verify merge blocks don't break plugin
         // - Remove useless logs
@@ -122,6 +125,11 @@ namespace TorchPlugin
                     TrackingManager.Stop();
                     break;
             }
+        }
+
+        public override void Update()
+        {
+            TrackingManager.FinalizeTrackableRemovals();
         }
 
         /// <summary>
