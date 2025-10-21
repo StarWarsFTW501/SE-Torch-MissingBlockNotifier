@@ -149,9 +149,14 @@ namespace TorchPlugin
         List<MyTrackable_ConnectorStructure> _topMostTrackables = new List<MyTrackable_ConnectorStructure>();
 
         /// <summary>
-        /// Contains all trackable objects that have been marked for removal and are pending finalization.
+        /// Contains all topmost trackables whose descendants have been marked for removal
         /// </summary>
-        List<MyTrackable> _markedForRemoval = new List<MyTrackable>();
+        List<MyTrackable_ConnectorStructure> _topMostTrackablesToCull = new List<MyTrackable_ConnectorStructure>();
+
+        /// <summary>
+        /// Contains all grids waiting for registration during the bulk load process. Key = grid entityid, Value = corresponding trackable object. Grids don't have ancestry!
+        /// </summary>
+        Dictionary<long, MyTrackable_Grid> _gridsWaitingForRegister = new Dictionary<long, MyTrackable_Grid>();
 
         /// <summary>
         /// Loads all <see cref="MyTrackingRule"/>s from config and creates a <see cref="MyBlockTracker"/> for each. Clears all existing trackers and trackables first.
@@ -263,111 +268,9 @@ namespace TorchPlugin
                 return;
             }
 
-            var blacklist = new HashSet<MyCubeGrid>();
-            var constructGrids = new List<MyCubeGrid>();
-
-            var constructsToAdd = new List<MyTrackable>();
-
-            var trackablesToAdd = new List<MyTrackable>();
-
-            var newlyCreated = new List<MyTrackable_Grid>();
-
-            Plugin.Instance.Logger.Info($"Registering grid '{grid.DisplayName}' and its neighbours...");
-
-
-            // this retrieves all grids in the current grid's connector structure, the largest extent of our trackable object ancestry
-            var connectorStructureGrids = grid.GetConnectedGrids(GridLinkTypeEnum.Logical);
-
-            var sb = new StringBuilder();
-            foreach (var connector in connectorStructureGrids)
-                sb.AppendLine($" - {connector.DisplayName}");
-
-            Plugin.Instance.Logger.Info($"Found {connectorStructureGrids.Count} connected grids in connector structure:\n{sb.ToString().TrimEnd()}");
-
-            MyTrackable topMostParent = null;
-            MyTrackable parent = null;
-            Plugin.Instance.Logger.Info($"Logical structure enumeration START - grids: {connectorStructureGrids.Count}");
-
-            foreach (var connectorStructureGrid in connectorStructureGrids)
-            {
-                // each grid may have been visited as a construct grid of a previously visited grid
-                if (blacklist.Add(connectorStructureGrid))
-                {
-                    Plugin.Instance.Logger.Info($"Newly seen grid: {connectorStructureGrid.DisplayName}");
-                    // grid is newly visited = we haven't seen its construct before
-
-                    // this retrieves all grids in the current grid's construct, an immediate descendant of the connector structure
-                    connectorStructureGrid.GetConnectedGrids(GridLinkTypeEnum.Mechanical, constructGrids);
-                    //constructGrids.Add(connectorStructureGrid);
-
-                    Plugin.Instance.Logger.Info($"Mechanical structure enumeration START - grids: {constructGrids.Count}");
-                    foreach (var constructGrid in constructGrids)
-                    {
-                        // this grid won't have been seen before since it's of a new construct, but we shouldn't visit it next time and think it's a new construct again
-                        blacklist.Add(constructGrid);
-
-                        if (_trackablesByGrid.TryGetValue(constructGrid.EntityId, out var trackable))
-                        {
-                            if (trackable == null)
-                                throw new Exception("Unexpected null trackable found in trackables by grid dictionary!");
-
-
-                            Plugin.Instance.Logger.Info($"Found existing grid proxy for {constructGrid.DisplayName} (proxy named {trackable.Grid.DisplayName}) - setting ancestry.");
-
-                            // this grid is already registered = we already have a hierarchy for this whole construct
-                            parent = trackable.Parent;
-
-                            // we also necessarily have a connector structure proxy for everything we do here
-                            topMostParent = parent.Parent;
-                        }
-                        else
-                        {
-                            Plugin.Instance.Logger.Info("No grid proxy found. Creating...");
-
-                            // this grid is not registered = we make a new proxy
-                            trackable = new MyTrackable_Grid(constructGrid);
-                            _trackablesByGrid[constructGrid.EntityId] = trackable;
-
-                            // register it for assigning of a construct (parent)
-                            trackablesToAdd.Add(trackable);
-
-                            newlyCreated.Add(trackable);
-
-                            // register it for scanning by trackers once its ancestry is assigned
-                            trackablesToScan?.Add(trackable);
-
-                            Plugin.Instance.Logger.Info($"Grid proxy created and registered for {constructGrid.DisplayName}.");
-                        }
-                    }
-
-                    constructGrids.Clear();
-                    Plugin.Instance.Logger.Info("Mechanical structure enumeration END");
-
-                    // create parent if not present and assign all grid trackables to it
-                    FinalizeParent(ref parent, trackablesToAdd, MyTrackableType.CONSTRUCT);
-
-                    // register parent for assigning of topmost parent (connector structure)
-                    constructsToAdd.Add(parent);
-
-                    // prepare for next construct creation (= unassign the remembered construct parent and clear its registration list)
-                    parent = null;
-                    trackablesToAdd.Clear();
-
-
-                    Plugin.Instance.Logger.Info("Parent finalized - enumeration continuing...");
-                }
-            }
-            Plugin.Instance.Logger.Info("Logical structure enumeration END");
-
-            // all constructs have been initialized properly - we need to group them into a (perhaps new) connector structure
-            FinalizeParent(ref topMostParent, constructsToAdd, MyTrackableType.CONNECTOR_STRUCTURE);
-
-            foreach (var trackable in newlyCreated)
-                foreach (var tracker in _trackers.Values)
-                    tracker.TryRegisterNewTrackable(trackable);
-
-            Plugin.Instance.Logger.Info("Connector structure finalized - registration END");
+            _gridsWaitingForRegister[grid.EntityId] = new MyTrackable_Grid(grid);
         }
+
         /// <summary>
         /// Scans all provided <see cref="MyTrackable_Grid"/>s using all registered <see cref="MyBlockTracker"/>s. Does not assign new trackables.
         /// </summary>
@@ -475,6 +378,57 @@ namespace TorchPlugin
         /// <param name="connectionLevel">The <see cref="MyTrackableType"/> level on which grids were connected.</param>
         public void GridsConnected(MyCubeGrid grid1, MyCubeGrid grid2, MyTrackableType connectionLevel)
         {
+            if (_gridsWaitingForRegister.ContainsKey(grid2.EntityId))
+            {
+                MyTrackable t2 = _gridsWaitingForRegister[grid2.EntityId];
+                _trackablesByGrid[grid2.EntityId] = (MyTrackable_Grid)t2;
+
+                ConstructAncestryToLevel(ref t2, connectionLevel - 1);
+
+                if (_gridsWaitingForRegister.ContainsKey(grid1.EntityId))
+                {
+                    MyTrackable t1 = _gridsWaitingForRegister[grid1.EntityId];
+                    _trackablesByGrid[grid1.EntityId] = (MyTrackable_Grid)t1;
+
+                    ConstructAncestryToLevel(ref t1, connectionLevel - 1);
+
+                    // create common ancestry at connection level
+                    MyTrackable parent = null;
+                    FinalizeParent(ref parent, new[] { t1, t2 }, connectionLevel);
+
+                    ConstructAncestryToLevel(ref parent, MyTrackableType.CONNECTOR_STRUCTURE);
+
+                    // register topmost parent
+                    _topMostTrackables.Add((MyTrackable_ConnectorStructure)parent);
+
+                    _gridsWaitingForRegister.Remove(grid1.EntityId);
+                }
+                else
+                {
+                    MyTrackable t1 = _trackablesByGrid[grid1.EntityId].GetAncestorOfType(connectionLevel)
+                        ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have a proxy of appropriate level!");
+
+                    t1.GetAncestorOfType(connectionLevel).AddChild(t2);
+                }
+
+                _gridsWaitingForRegister.Remove(grid2.EntityId);
+                return;
+            }
+
+            if (_gridsWaitingForRegister.ContainsKey(grid1.EntityId))
+            {
+                MyTrackable t1 = _gridsWaitingForRegister[grid1.EntityId];
+                _trackablesByGrid[grid1.EntityId] = (MyTrackable_Grid)t1;
+
+                MyTrackable t2 = _trackablesByGrid[grid2.EntityId].GetAncestorOfType(connectionLevel)
+                    ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid2.DisplayName}' does not have a proxy of appropriate level!");
+
+                t2.GetAncestorOfType(connectionLevel).AddChild(t1);
+
+                _gridsWaitingForRegister.Remove(grid1.EntityId);
+                return;
+            }
+
             MyTrackable trackable1 = _trackablesByGrid.GetValueOrDefault(grid1.EntityId)?.GetAncestorOfType(connectionLevel)
                 ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have a proxy of appropriate level!");
             MyTrackable trackable2 = _trackablesByGrid.GetValueOrDefault(grid2.EntityId)?.GetAncestorOfType(connectionLevel)
@@ -514,6 +468,8 @@ namespace TorchPlugin
 
                     foreach (var t in trackable2.GetHighestSingleAncestor().GetAllProxies())
                         t.MarkedForRemoval = true;
+
+                    _topMostTrackablesToCull.Add((MyTrackable_ConnectorStructure)trackable2.GetAncestorOfType(MyTrackableType.CONNECTOR_STRUCTURE));
                 }
             }
         }
@@ -685,6 +641,8 @@ namespace TorchPlugin
             RemoveTrackableFromTrackers(trackable);
 
             trackable.MarkedForRemoval = true;
+
+            _topMostTrackablesToCull.Add((MyTrackable_ConnectorStructure)trackable.GetAncestorOfType(MyTrackableType.CONNECTOR_STRUCTURE));
         }
 
 
@@ -708,6 +666,168 @@ namespace TorchPlugin
         }
 
         /// <summary>
+        /// Finalizes the initialization of trackables registered during bulk load. Scans grids!
+        /// </summary>
+        public void FinalizeTrackableInits()
+        {
+            if (!IsStarted)
+                return;
+
+            var initializedGrids = new List<long>();
+
+            var jobs = new List<MyBlockTracker.ScanJob>();
+
+            foreach (var kvp in _gridsWaitingForRegister)
+            {
+                // FinalizeInitForGridTrackable(kvp.Value, trackablesToScan);
+
+                MyTrackable trackable = kvp.Value;
+                ConstructAncestryToLevel(ref trackable, MyTrackableType.CONNECTOR_STRUCTURE);
+
+                foreach (var tracker in _trackers.Values)
+                {
+                    tracker.TryRegisterNewTrackable(kvp.Value);
+                    var job = tracker.ScanTrackable(kvp.Value);
+                    if (job != null)
+                        jobs.Add(job);
+                }
+
+                ScanGridWithJobs(kvp.Value.Grid, jobs);
+                jobs.Clear();
+
+                initializedGrids.Add(kvp.Key);
+            }
+
+            foreach (var id in initializedGrids)
+                _gridsWaitingForRegister.Remove(id);
+        }
+        /*
+        void FinalizeInitForGridTrackable(MyTrackable_Grid gridTrackable, List<MyTrackable> trackablesToScan = null)
+        {
+            var blacklist = new HashSet<MyCubeGrid>();
+            var constructGrids = new List<MyCubeGrid>();
+
+            var constructsToAdd = new List<MyTrackable>();
+
+            var trackablesToAdd = new List<MyTrackable>();
+
+            var newTrackables = new List<MyTrackable_Grid>();
+
+            Plugin.Instance.Logger.Info($"Registering grid '{gridTrackable.Grid.DisplayName}' and its neighbours...");
+
+
+            // this retrieves all grids in the current grid's connector structure, the largest extent of our trackable object ancestry
+            var connectorStructureGrids = gridTrackable.Grid.GetConnectedGrids(GridLinkTypeEnum.Logical);
+
+            var sb = new StringBuilder();
+            foreach (var connector in connectorStructureGrids)
+                sb.AppendLine($" - {connector.DisplayName}");
+
+            Plugin.Instance.Logger.Info($"Found {connectorStructureGrids.Count} connected grids in connector structure:\n{sb.ToString().TrimEnd()}");
+
+            MyTrackable topMostParent = null;
+            MyTrackable parent = null;
+            Plugin.Instance.Logger.Info($"Logical structure enumeration START - grids: {connectorStructureGrids.Count}");
+
+            foreach (var connectorStructureGrid in connectorStructureGrids)
+            {
+                // each grid may have been visited as a construct grid of a previously visited grid
+                if (blacklist.Add(connectorStructureGrid))
+                {
+                    Plugin.Instance.Logger.Info($"Newly seen grid: {connectorStructureGrid.DisplayName}");
+                    // grid is newly visited = we haven't seen its construct before
+
+                    // this retrieves all grids in the current grid's construct, an immediate descendant of the connector structure
+                    connectorStructureGrid.GetConnectedGrids(GridLinkTypeEnum.Mechanical, constructGrids);
+                    //constructGrids.Add(connectorStructureGrid);
+
+                    Plugin.Instance.Logger.Info($"Mechanical structure enumeration START - grids: {constructGrids.Count}");
+                    foreach (var constructGrid in constructGrids)
+                    {
+                        // this grid won't have been seen before since it's of a new construct, but we shouldn't visit it next time and think it's a new construct again
+                        blacklist.Add(constructGrid);
+
+                        if (_trackablesByGrid.TryGetValue(constructGrid.EntityId, out var trackable))
+                        {
+                            if (trackable == null)
+                                throw new Exception("Unexpected null trackable found in trackables by grid dictionary!");
+
+
+                            Plugin.Instance.Logger.Info($"Found existing grid proxy for {constructGrid.DisplayName} (proxy named {trackable.Grid.DisplayName}) - setting ancestry.");
+
+                            // this grid is already registered = we already have a hierarchy for this whole construct
+                            parent = trackable.Parent;
+
+                            // we also necessarily have a connector structure proxy for everything we do here
+                            topMostParent = parent.Parent;
+                        }
+                        else if (constructGrid == gridTrackable.Grid)
+                        {
+                            Plugin.Instance.Logger.Info($"Initialization target encountered. Including...");
+
+                            // this is the grid we are currently registering = we already have its proxy, but it has no ancestry yet
+                            trackable = gridTrackable;
+
+                            _trackablesByGrid[constructGrid.EntityId] = trackable;
+
+                            trackablesToAdd.Add(trackable);
+
+                            newTrackables.Add(trackable);
+
+                            // register it for assigning of a construct (parent)
+                            trackablesToAdd.Add(trackable);
+                        }
+                        else
+                        {
+                            Plugin.Instance.Logger.Info("No grid proxy found. Creating...");
+
+                            // this grid is not registered = we make a new proxy
+                            trackable = new MyTrackable_Grid(constructGrid);
+                            _trackablesByGrid[constructGrid.EntityId] = trackable;
+
+                            // register it for assigning of a construct (parent)
+                            trackablesToAdd.Add(trackable);
+
+                            newTrackables.Add(trackable);
+
+                            // register it for scanning by trackers once its ancestry is assigned
+                            trackablesToScan?.Add(trackable);
+
+                            Plugin.Instance.Logger.Info($"Grid proxy created and registered for {constructGrid.DisplayName}.");
+                        }
+                    }
+
+                    constructGrids.Clear();
+                    Plugin.Instance.Logger.Info("Mechanical structure enumeration END");
+
+                    // create parent if not present and assign all grid trackables to it
+                    FinalizeParent(ref parent, trackablesToAdd, MyTrackableType.CONSTRUCT);
+
+                    // register parent for assigning of topmost parent (connector structure)
+                    constructsToAdd.Add(parent);
+
+                    // prepare for next construct creation (= unassign the remembered construct parent and clear its registration list)
+                    parent = null;
+                    trackablesToAdd.Clear();
+
+
+                    Plugin.Instance.Logger.Info("Parent finalized - enumeration continuing...");
+                }
+            }
+            Plugin.Instance.Logger.Info("Logical structure enumeration END");
+
+            // all constructs have been initialized properly - we need to group them into a (perhaps new) connector structure
+            FinalizeParent(ref topMostParent, constructsToAdd, MyTrackableType.CONNECTOR_STRUCTURE);
+
+            foreach (var trackable in newTrackables)
+                foreach (var tracker in _trackers.Values)
+                    tracker.TryRegisterNewTrackable(trackable);
+
+            Plugin.Instance.Logger.Info("Connector structure finalized - registration END");
+        }
+        */
+
+        /// <summary>
         /// Removes all <see cref="MyTrackable"/>s that have been marked for removal and properly unregisters them from this manager's collections.
         /// </summary>
         public void FinalizeTrackableRemovals()
@@ -717,9 +837,7 @@ namespace TorchPlugin
 
             var toRemoveGrids = new List<long>();
 
-            for (int i = _topMostTrackables.Count - 1; i >= 0; i--)
-            {
-                var trackable = _topMostTrackables[i];
+            foreach (var trackable in _topMostTrackablesToCull)
                 if (trackable.ExecuteRemoval(toRemoveGrids))
                 {
                     _topMostTrackables.RemoveAt(i);
@@ -727,14 +845,16 @@ namespace TorchPlugin
                         tracker.UnregisterTrackable(trackable);
                     Plugin.Instance.Logger.Info($"Removed topmost trackable '{trackable.GetDisplayName()}' from tracking manager.");
                 }
-            }
+
+            _topMostTrackablesToCull.Clear();
+
             foreach (var key in toRemoveGrids)
             {
                 Plugin.Instance.Logger.Info($"Removed trackable for grid '{_trackablesByGrid[key].Grid.DisplayName}' of entity ID '{key}' from tracking manager.");
                 _trackablesByGrid.Remove(key);
             }
         }
-
+        
         /// <summary>
         /// Removes a trackable from all trackers. Executes any <see cref="MyBlockTracker.ScanJob"/>s required by the unregister process.
         /// </summary>
@@ -750,6 +870,17 @@ namespace TorchPlugin
             }
             foreach (var leaf in trackable.GetAllLeafProxies())
                 ScanGridWithJobs(leaf.Grid, jobs);
+        }
+
+        void ConstructAncestryToLevel(ref MyTrackable trackable, MyTrackableType level)
+        {
+            MyTrackable parent = null;
+            for (int i = 1; i <= (int)level; i++)
+            {
+                parent = null;
+                FinalizeParent(ref parent, new[] { trackable }, (MyTrackableType)i);
+                trackable = parent;
+            }
         }
     }
 }

@@ -18,12 +18,12 @@ namespace TorchPlugin
         protected int _containedCount;
         public int ContainedCount => _containedCount;
 
-        public void IncreaseContainedCount(int byAmount)
+        void IncreaseContainedCount(int byAmount)
         {
             _containedCount += byAmount;
             Parent?.IncreaseContainedCount(byAmount);
         }
-        public void DecreaseContainedCount(int byAmount)
+        void DecreaseContainedCount(int byAmount)
         {
             _containedCount -= byAmount;
             Parent?.DecreaseContainedCount(byAmount);

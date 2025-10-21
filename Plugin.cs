@@ -129,6 +129,7 @@ namespace TorchPlugin
 
         public override void Update()
         {
+            TrackingManager.FinalizeTrackableInits();
             TrackingManager.FinalizeTrackableRemovals();
         }
 
