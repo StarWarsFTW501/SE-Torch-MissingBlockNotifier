@@ -12,6 +12,7 @@ namespace TorchPlugin
         bool HasChanges { get; }
         bool Enabled { get; set; }
         float TimerSeconds { get; set; }
+        float InitSeconds { get; set; }
         List<MyTrackingGroup> Groups { get; set; }
 
 

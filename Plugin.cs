@@ -25,9 +25,12 @@ namespace TorchPlugin
     public class Plugin : TorchPluginBase, IWpfPlugin
     {
         // TODO:
-        // - Fix crash when deleting multi-grid proxy - appears to be caused by mechanical disconnect being called after the grid is already removed from the world (ignore unregister of non-existent grid?)
+        // - Fix crash when splitting grid (for some reason there is a problem with creation of proper ancestry structure - some of the proxies involved after creation of CONSTRUCT throw on name retrieval)
 
-        // - Delayed load of grids - currently grids initialized as subgrid connections get their whole ancestry constructed and then immediately destroyed when the connection is made, making ancestry init unnecessary
+
+        // X- Fix crash when deleting multi-grid proxy - appears to be caused by mechanical disconnect being called after the grid is already removed from the world (ignore unregister of non-existent grid?)
+
+        // X- Delayed load of grids - currently grids initialized as subgrid connections get their whole ancestry constructed and then immediately destroyed when the connection is made, making ancestry init unnecessary
 
         // - Verify operation of complex structure merging/splitting (so far we only know simple grid addition/removal and subgrid merging works)
         // - Verify merge blocks don't break plugin
@@ -63,6 +66,18 @@ namespace TorchPlugin
         private PersistentConfig<MyPluginConfig> _config;
 
         internal MyBlockTrackingManager TrackingManager { get; private set; }
+
+        internal long Tick { get; private set; } = 0;
+        Dictionary<long, Action> _delayedActions = new Dictionary<long, Action>();
+
+        internal void RegisterDelayedAction(Action action, long delayTicks)
+        {
+            long executeTick = Tick + delayTicks;
+            if (!_delayedActions.ContainsKey(executeTick))
+                _delayedActions[executeTick] = action;
+            else
+                _delayedActions[executeTick] += action;
+        }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public override void Init(ITorchBase torch)
@@ -118,7 +133,7 @@ namespace TorchPlugin
                                 if (!rule.ValidateBlockDefinition())
                                     Logger.Warning($"Rule in group '{group.Name}' has loaded with invalid block definition '{rule.TypeId}/{rule.SubtypeName}'! No blocks will be tracked!");
 
-                        TrackingManager.Start();
+                        TrackingManager.Start(true);
                     }
                     break;
                 case TorchSessionState.Unloading:
@@ -129,6 +144,14 @@ namespace TorchPlugin
 
         public override void Update()
         {
+            Tick++;
+
+            if (_delayedActions.Count != 0 && _delayedActions.TryGetValue(Tick, out var action))
+            {
+                action?.Invoke();
+                _delayedActions.Remove(Tick);
+            }
+
             TrackingManager.FinalizeTrackableInits();
             TrackingManager.FinalizeTrackableRemovals();
         }
@@ -204,7 +227,7 @@ namespace TorchPlugin
                                 typeProblems = true;
                                 Logger.Warning($"Rule in group '{group.Name}' has an invalid block definition '{rule.TypeId}/{rule.SubtypeName}'! No blocks will be tracked!");
                             }
-                    applicator += TrackingManager.LoadConfig;
+                    applicator += () => TrackingManager.LoadConfig();
                     needsRecompute = true;
                 }
             }

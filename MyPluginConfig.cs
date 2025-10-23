@@ -19,6 +19,7 @@ namespace TorchPlugin
 
         bool _enabled = false;
         float _timerSeconds = 600;
+        float _initSeconds = 1;
         List<MyTrackingGroup> _groups = new List<MyTrackingGroup>();
 
         public bool Enabled
@@ -43,6 +44,19 @@ namespace TorchPlugin
                 {
                     _timerSeconds = value;
                     OnPropertyChanged(nameof(TimerSeconds));
+                }
+            }
+        }
+
+        public float InitSeconds
+        {
+            get => _initSeconds;
+            set
+            {
+                if (_initSeconds != value)
+                {
+                    _initSeconds = value;
+                    OnPropertyChanged(nameof(InitSeconds));
                 }
             }
         }
