@@ -16,17 +16,51 @@ using VRage.ObjectBuilders;
 
 namespace TorchPlugin
 {
-    [HarmonyPatch]
-    public class MyPatches
-    {
-        readonly static FieldInfo _fieldInfo_m_cubeBlocks = typeof(MyCubeGrid).GetField("m_cubeBlocks", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new MissingFieldException($"Field 'm_cubeBlocks' not found in type '{nameof(MyCubeGrid)}'! Please disable the plugin and contact author!");
-        readonly static FieldInfo _fieldInfo_m_other = typeof(MyShipConnector).GetField("m_other", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new MissingFieldException($"Field 'm_other' not found in type '{nameof(MyShipConnector)}'! Please disable the plugin and contact author!");
 
-        // When moving blocks to another grid (merge)
+    // Any other case of adding blocks (including on initialization)
+    [HarmonyPatch(typeof(MyCubeGrid), "AddBlock")]
+    public class MyPatches_AddBlock
+    {
+        [HarmonyPrefix]
+        public static void Prefix(MyCubeGrid __instance, MyObjectBuilder_CubeBlock objectBuilder, bool testMerge, ref MyGridAccessLock __state)
+        {
+            __state = MyGridAccessSynchronizer.AcquireLocks(__instance);
+        }
         [HarmonyPostfix]
-        [HarmonyPatch(typeof(MyCubeGrid), "AddBlockInternal")]
+        public static void Postfix(MyCubeGrid __instance, MySlimBlock __result, MyObjectBuilder_CubeBlock objectBuilder, bool testMerge)
+        {
+            try
+            {
+                //Plugin.Instance.Logger.Info($"AddBlock on grid {__instance.DisplayName} ({__instance.EntityId}) for block {objectBuilder?.GetId()} at {__result?.Position}, testMerge: {testMerge}, result: {__result != null}");
+                if (Plugin.Instance.TrackingManager.IsStarted && __result != null)
+                {
+                    Plugin.Instance.TrackingManager.RegisterNewBlock(__instance, __result);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.Error(ex, "Unhandled exception in AddBlock Harmony patch.");
+                throw;
+            }
+        }
+        [HarmonyFinalizer]
+        public static void Finalizer(MyCubeGrid __instance, MyObjectBuilder_CubeBlock objectBuilder, bool testMerge, MyGridAccessLock __state)
+        {
+            __state.Dispose();
+        }
+    }
+
+
+    // When moving blocks to another grid (merge)
+    [HarmonyPatch(typeof(MyCubeGrid), "AddBlockInternal")]
+    public class MyPatches_AddBlockInternal
+    {
+        [HarmonyPrefix]
+        public static void Prefix(MyCubeGrid __instance, MySlimBlock block, ref MyGridAccessLock __state)
+        {
+            __state = MyGridAccessSynchronizer.AcquireLocks(__instance);
+        }
+        [HarmonyPostfix]
         public static void MyCubeGrid_AddBlockInternal_Postfix(MyCubeGrid __instance, MySlimBlock block)
         {
             try
@@ -43,26 +77,22 @@ namespace TorchPlugin
                 throw;
             }
         }
-        
-        // Any other case of adding blocks (including on initialization)
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(MyCubeGrid), "AddBlock")]
-        public static void MyCubeGrid_AddBlock_Postfix(MyCubeGrid __instance, MySlimBlock __result, MyObjectBuilder_CubeBlock objectBuilder, bool testMerge)
+        [HarmonyFinalizer]
+        public static void Finalizer(MyCubeGrid __instance, MySlimBlock block, MyGridAccessLock __state)
         {
-            try
-            {
-                //Plugin.Instance.Logger.Info($"AddBlock on grid {__instance.DisplayName} ({__instance.EntityId}) for block {objectBuilder?.GetId()} at {__result?.Position}, testMerge: {testMerge}, result: {__result != null}");
-                if (Plugin.Instance.TrackingManager.IsStarted && __result != null)
-                {
-                    Plugin.Instance.TrackingManager.RegisterNewBlock(__instance, __result);
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Instance.Logger.Error(ex, "Unhandled exception in AddBlock Harmony patch.");
-                throw;
-            }
+            __state.Dispose();
         }
+    }
+
+
+    [HarmonyPatch]
+    public class MyPatches
+    {
+        readonly static FieldInfo _fieldInfo_m_cubeBlocks = typeof(MyCubeGrid).GetField("m_cubeBlocks", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingFieldException($"Field 'm_cubeBlocks' not found in type '{nameof(MyCubeGrid)}'! Please disable the plugin and contact author!");
+        readonly static FieldInfo _fieldInfo_m_other = typeof(MyShipConnector).GetField("m_other", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingFieldException($"Field 'm_other' not found in type '{nameof(MyShipConnector)}'! Please disable the plugin and contact author!");
+
 
         // When connectors connect
         [HarmonyPostfix]
@@ -206,7 +236,8 @@ namespace TorchPlugin
             {
                 //Plugin.Instance.Logger.Info($"Init on entity {objectBuilder?.Name ?? "<null>"} ({__instance.EntityId}) - grid? {__instance is MyCubeGrid}");
                 if (__instance is MyCubeGrid grid && Plugin.Instance.TrackingManager.IsStarted)
-                    Plugin.Instance.TrackingManager.RegisterGridSingle(grid);
+                    // Plugin.Instance.TrackingManager.RegisterGridSingle(grid);
+                    Plugin.Instance.TrackingManager.RegisterGrid(grid);
             }
             catch (Exception ex)
             {

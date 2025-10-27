@@ -629,6 +629,8 @@
     <Compile Include="MyBlockTracker.cs" />
     <Compile Include="MyBlockTrackingManager.cs" />
     <Compile Include="MyCommands.cs" />
+    <Compile Include="MyGridAccessLock.cs" />
+    <Compile Include="MyGridAccessSynchronizer.cs" />
     <Compile Include="MyPatches.cs" />
     <Compile Include="Controls\MyRelayCommand.cs" />
     <Compile Include="MyTrackable.cs" />

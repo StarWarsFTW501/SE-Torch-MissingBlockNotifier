@@ -113,7 +113,8 @@ namespace TorchPlugin
                 });
             }
 
-            
+            MyGridAccessSynchronizer.InitDebugging();
+
             TrackingManager = new MyBlockTrackingManager();
 
             Torch.Managers.GetManager<ITorchSessionManager>().SessionStateChanged += SessionStateChanged;

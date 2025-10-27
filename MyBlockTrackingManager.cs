@@ -4,6 +4,7 @@ using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.World;
 using SteamKit2.Internal;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -160,7 +161,12 @@ namespace TorchPlugin
         /// <summary>
         /// Contains all grids waiting for registration during the bulk load process. Key = grid entityid, Value = corresponding trackable object. Grids don't have ancestry!
         /// </summary>
-        Dictionary<long, MyTrackable_Grid> _gridsWaitingForRegister = new Dictionary<long, MyTrackable_Grid>();
+        ConcurrentDictionary<long, MyTrackable_Grid> _gridsWaitingForRegister = new ConcurrentDictionary<long, MyTrackable_Grid>();
+
+        /// <summary>
+        /// Contains all blocks waiting for registration on grids that are not yet registered. Key = parent grid entityid, Value = list of blocks waiting for registration.
+        /// </summary>
+        ConcurrentDictionary<long, List<MySlimBlock>> _blocksWaitingForRegister = new ConcurrentDictionary<long, List<MySlimBlock>>();
 
         /// <summary>
         /// Loads all <see cref="MyTrackingRule"/>s from config and creates a <see cref="MyBlockTracker"/> for each. Clears all existing trackers and trackables first.
@@ -252,13 +258,11 @@ namespace TorchPlugin
             Plugin.Instance.Logger.Info($"{nameof(MyBlockTrackingManager)} LOAD - Loading grids...");
             var allEntities = MyEntities.GetEntities();
 
-            List<MyTrackable_Grid> toScan = new List<MyTrackable_Grid>();
-
             foreach (var entity in allEntities)
             {
                 if (entity is MyCubeGrid grid)
                 {
-                    RegisterGrid(grid, toScan);
+                    RegisterGrid(grid);
                 }
             }
         }
@@ -295,7 +299,7 @@ namespace TorchPlugin
         /// </remarks>
         /// <param name="grid">The <see cref="MyCubeGrid"/> to be registered along with its neighbours.</param>
         /// <param name="trackablesToScan">List to populate with <see cref="MyTrackable"/>s that have been newly initialized and need scanning, or <see langword="null"/> if not required.</param>
-        public void RegisterGrid(MyCubeGrid grid, List<MyTrackable_Grid> trackablesToScan = null)
+        public void RegisterGrid(MyCubeGrid grid)
         {
             // if this grid is already registered (for example by having been spawned as a neighbour to a previously handled grid), exit registration
             if (_trackablesByGrid.ContainsKey(grid.EntityId))
@@ -321,7 +325,6 @@ namespace TorchPlugin
             // we have all newly created grid proxies with ancestry assigned - we need to scan them with each tracker
             foreach (var trackable in trackablesToScan)
             {
-
                 foreach (var tracker in _trackers.Values)
                 {
                     // grabs a job for this trackable's scanning
@@ -336,26 +339,29 @@ namespace TorchPlugin
 
         void ScanGridWithJobs(MyCubeGrid gridToScan, IEnumerable<MyBlockTracker.ScanJob> jobs)
         {
-            Plugin.Instance.Logger.Info($"Scanning grid '{gridToScan.DisplayName}' with {jobs.Count()} jobs...");
-            // only scan blocks if there is at least one tracker that wants to scan them
-            if (jobs.Any())
+            using (MyGridAccessSynchronizer.AcquireLocks(gridToScan))
             {
-                // scan all blocks in this grid with all jobs in parallel
-                Parallel.ForEach(gridToScan.CubeBlocks, b =>
+                Plugin.Instance.Logger.Info($"Scanning grid '{gridToScan.DisplayName}' with {jobs.Count()} jobs...");
+                // only scan blocks if there is at least one tracker that wants to scan them
+                if (jobs.Any())
                 {
-                    foreach (var job in jobs)
+                    // scan all blocks in this grid with all jobs in parallel
+                    Parallel.ForEach(gridToScan.CubeBlocks, b =>
                     {
-                        // method calls an externally provided predicate which the documentation directs to be thread-safe,
-                        // and atomically increments job's internal counter if predicate returns true
-                        job.ScanBlock(b);
-                    }
-                });
-            }
+                        foreach (var job in jobs)
+                        {
+                            // method calls an externally provided predicate which the documentation directs to be thread-safe,
+                            // and atomically increments job's internal counter if predicate returns true
+                            job.ScanBlock(b);
+                        }
+                    });
+                }
 
-            // finalize each job
-            foreach (var job in jobs)
-            {
-                job.Complete();
+                // finalize each job
+                foreach (var job in jobs)
+                {
+                    job.Complete();
+                }
             }
         }
 
@@ -400,17 +406,22 @@ namespace TorchPlugin
         /// <param name="block">The new block.</param>
         public void RegisterNewBlock(MyCubeGrid parentGrid, MySlimBlock block)
         {
-            if (_isInitDelaying)
+            using (MyGridAccessSynchronizer.AcquireLocks(parentGrid))
             {
-                Plugin.Instance.Logger.Info($"Block registration requested during initialization delay - delaying until finished.");
-                Plugin.Instance.RegisterDelayedAction(() => RegisterNewBlock(parentGrid, block), (long)(Plugin.Instance.Config.InitSeconds * 60));
-                return;
-            }
+                if (!_trackablesByGrid.TryGetValue(parentGrid.EntityId, out var trackable))
+                {
+                    Plugin.Instance.Logger.Info($"Block registration requested for uninitialized grid - deferring until grids are registered.");
+                    if (_blocksWaitingForRegister.TryGetValue(parentGrid.EntityId, out var blockList))
+                        blockList.Add(block);
+                    else
+                        _blocksWaitingForRegister[parentGrid.EntityId] = new List<MySlimBlock>() { block };
+                    return;
+                }
 
-            var trackable = _trackablesByGrid[parentGrid.EntityId];
-            //Plugin.Instance.Logger.Info($"Registering new block {block.BlockDefinition.Id} at {block.Position} on grid '{parentGrid.DisplayName}' ({parentGrid.EntityId}) in trackable '{trackable.GetDisplayName()}' with {_trackers.Values.Count} trackers...");
-            foreach (var tracker in _trackers.Values)
-                tracker.RegisterNewBlock(trackable, block);
+                //Plugin.Instance.Logger.Info($"Registering new block {block.BlockDefinition.Id} at {block.Position} on grid '{parentGrid.DisplayName}' ({parentGrid.EntityId}) in trackable '{trackable.GetDisplayName()}' with {_trackers.Values.Count} trackers...");
+                foreach (var tracker in _trackers.Values)
+                    tracker.RegisterNewBlock(trackable, block);
+            }
         }
 
         /// <summary>
@@ -423,10 +434,10 @@ namespace TorchPlugin
         {
             if (grid1 != grid2)
             {
-                MyTrackable trackable1 = _gridsWaitingForRegister.GetValueOrDefault(grid1.EntityId)
+                MyTrackable trackable1 = _gridsWaitingForRegister.GetValueOrDefault(grid1.EntityId, null)
                     ?? _trackablesByGrid.GetValueOrDefault(grid1.EntityId)?.GetAncestorOfType(connectionLevel)
                     ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid1.DisplayName}' does not have a proxy!");
-                MyTrackable trackable2 = _gridsWaitingForRegister.GetValueOrDefault(grid2.EntityId)
+                MyTrackable trackable2 = _gridsWaitingForRegister.GetValueOrDefault(grid2.EntityId, null)
                     ?? _trackablesByGrid.GetValueOrDefault(grid2.EntityId)?.GetAncestorOfType(connectionLevel)
                     ?? throw new NullReferenceException($"Cannot connect grids - Involved grid '{grid2.DisplayName}' does not have a proxy!");
 
@@ -450,6 +461,11 @@ namespace TorchPlugin
 
                     _gridsWaitingForRegister.Remove(grid1.EntityId);
                     _gridsWaitingForRegister.Remove(grid2.EntityId);
+
+                    if (_blocksWaitingForRegister.TryRemove(grid1.EntityId, out _))
+                        Plugin.Instance.Logger.Info($"Blocks waiting for grid '{grid1.DisplayName}' ({grid1.EntityId}) discarded - handled by scan.");
+                    if (_blocksWaitingForRegister.TryRemove(grid2.EntityId, out _))
+                        Plugin.Instance.Logger.Info($"Blocks waiting for grid '{grid2.DisplayName}' ({grid2.EntityId}) discarded - handled by scan.");
 
                     var jobs1 = new List<MyBlockTracker.ScanJob>();
                     var jobs2 = new List<MyBlockTracker.ScanJob>();
@@ -489,6 +505,11 @@ namespace TorchPlugin
 
                     _gridsWaitingForRegister.Remove(grid1.EntityId);
 
+
+                    if (_blocksWaitingForRegister.TryRemove(grid1.EntityId, out _))
+                        Plugin.Instance.Logger.Info($"Blocks waiting for grid '{grid1.DisplayName}' ({grid1.EntityId}) discarded - handled by scan.");
+
+
                     var jobs = new List<MyBlockTracker.ScanJob>();
 
                     foreach (var tracker in _trackers.Values)
@@ -516,6 +537,11 @@ namespace TorchPlugin
                     trackable1.AddChild(trackable2);
 
                     _gridsWaitingForRegister.Remove(grid2.EntityId);
+
+
+                    if (_blocksWaitingForRegister.TryRemove(grid2.EntityId, out _))
+                        Plugin.Instance.Logger.Info($"Blocks waiting for grid '{grid2.DisplayName}' ({grid2.EntityId}) discarded - handled by scan.");
+
 
                     var jobs = new List<MyBlockTracker.ScanJob>();
 
@@ -549,13 +575,14 @@ namespace TorchPlugin
                         if (tracker.Rule.Type == (MyTrackableType)i)
                             tracker.MergeTrackables(trackable2, trackable1);
 
-                    // move children of trackable2 to trackable1
+                    // move children with active grids of trackable2 to trackable1
                     foreach (var child in trackable2.Children)
-                    {
-                        Plugin.Instance.Logger.Info($"Reassigning child '{child.GetDisplayName()}' of type {child.TrackableType} from '{trackable2.GetDisplayName()}' to '{trackable1.GetDisplayName()}'");
-                        trackable1.AddChild(child);
-                        Plugin.Instance.Logger.Info($"Child '{child.GetDisplayName()}' reassigned. Is now in {trackable1.GetDisplayName()}? {trackable1.Children.Find(c => c == child) != null} - Parent now '{child.Parent?.GetDisplayName() ?? "<null>"}'");
-                    }
+                        if (child.ContainedCount > 0)
+                        {
+                            Plugin.Instance.Logger.Info($"Reassigning child '{child.GetDisplayName()}' of type {child.TrackableType} from '{trackable2.GetDisplayName()}' to '{trackable1.GetDisplayName()}'");
+                            trackable1.AddChild(child);
+                            Plugin.Instance.Logger.Info($"Child '{child.GetDisplayName()}' reassigned. Is now in {trackable1.GetDisplayName()}? {trackable1.Children.Find(c => c == child) != null} - Parent now '{child.Parent?.GetDisplayName() ?? "<null>"}'");
+                        }
                     trackable2.ClearChildren(); // otherwise children would be culled as if they were supposed to be removed, which is not the case
 
 
@@ -742,12 +769,15 @@ namespace TorchPlugin
         /// <param name="grid">The grid to be unregistered.</param>
         public void UnregisterGrid(MyCubeGrid grid)
         {
-            if (_isInitDelaying)
+            if (_gridsWaitingForRegister.TryRemove(grid.EntityId, out _) || _blocksWaitingForRegister.TryRemove(grid.EntityId, out _))
+                Plugin.Instance.Logger.Info($"Grid '{grid.DisplayName}' ({grid.EntityId}) has entries in initialization queues - discarded.");
+
+            if (!_trackablesByGrid.ContainsKey(grid.EntityId))
             {
-                Plugin.Instance.Logger.Info($"Grid '{grid.DisplayName}' unregistration requested during initialization delay - removing from initialization queue.");
-                _gridsWaitingForRegister.Remove(grid.EntityId);
+                Plugin.Instance.Logger.Info($"Grid '{grid.DisplayName}' ({grid.EntityId}) is not registered - unregistration skipped.");
                 return;
             }
+
             UnregisterTrackableInternal(_trackablesByGrid[grid.EntityId]);
         }
 
@@ -755,7 +785,14 @@ namespace TorchPlugin
         {
             trackable = trackable.GetHighestSingleAncestor();
 
-            RemoveTrackableFromTrackers(trackable);
+            if (trackable.MarkedForRemoval)
+            {
+                Plugin.Instance.Logger.Info($"Trackable '{trackable.GetDisplayName()}' already marked for removal - Unregister skipped.");
+                return;
+            }
+
+            // This isn't needed - the delayed removal takes care of it
+            // RemoveTrackableFromTrackers(trackable);
 
             trackable.MarkedForRemoval = true;
 
@@ -793,12 +830,16 @@ namespace TorchPlugin
 
         void FinalizeTrackableInitsInternal()
         {
-            if (!IsStarted)
+            if (!IsStarted || _gridsWaitingForRegister.Count == 0)
+            {
+                if (_blocksWaitingForRegister.Count > 0)
+                    Plugin.Instance.Logger.Error($"No trackable inits scheduled, and blocks found waiting for registration on grids ({_blocksWaitingForRegister.Count})!");
                 return;
+            }
 
             var toScan = new List<MyTrackable_Grid>();
 
-            var jobs = new List<MyBlockTracker.ScanJob>();
+            var jobs = new ThreadLocal<List<MyBlockTracker.ScanJob>>();
 
             //var blacklist = new HashSet<long>();
 
@@ -806,25 +847,46 @@ namespace TorchPlugin
                 if (!_trackablesByGrid.ContainsKey(kvp.Key))
                 {
                     FinalizeInitForGridTrackable(kvp.Value, toScan);
-                    foreach (var grid in toScan)
+
+                    using (MyGridAccessSynchronizer.AcquireLocks(toScan.Select(t => t.Grid)))
                     {
-                        foreach (var tracker in _trackers.Values)
+                        Parallel.ForEach(toScan, grid =>
                         {
-                            var job = tracker.ScanTrackable(grid);
-                            if (job != null)
-                                jobs.Add(job);
-                        }
-                        ScanGridWithJobs(grid.Grid, jobs);
-                        jobs.Clear();
+                            if (_blocksWaitingForRegister.TryGetValue(kvp.Key, out var blocks))
+                            {
+                                Plugin.Instance.Logger.Info($"Registering {blocks.Count} blocks that were waiting for grid '{kvp.Value.Grid.DisplayName}' to be registered...");
+                                foreach (var block in blocks)
+                                {
+                                    RegisterNewBlock(kvp.Value.Grid, block);
+                                }
+                                _blocksWaitingForRegister.Remove(kvp.Key);
+                            }
+                            if (!jobs.IsValueCreated)
+                                jobs.Value = new List<MyBlockTracker.ScanJob>();
+                            foreach (var tracker in _trackers.Values)
+                            {
+                                var job = tracker.ScanTrackable(grid);
+                                if (job != null)
+                                    jobs.Value.Add(job);
+                            }
+                            ScanGridWithJobs(grid.Grid, jobs.Value);
+                            jobs.Value.Clear();
+                        });
                     }
+
                     toScan.Clear();
                 }
 
             _gridsWaitingForRegister.Clear();
+
+            if (_blocksWaitingForRegister.Count > 0)
+                Plugin.Instance.Logger.Error($"Some blocks are still waiting for registration on grids ({_blocksWaitingForRegister.Count}) after finalizing trackable inits!");
         }
 
         void FinalizeInitForGridTrackable(MyTrackable_Grid gridTrackable, List<MyTrackable_Grid> trackablesToScan = null)
         {
+            MyGridAccessLock heldLock = null;
+
             var blacklist = new HashSet<MyCubeGrid>();
             var constructGrids = new List<MyCubeGrid>();
 
@@ -895,6 +957,9 @@ namespace TorchPlugin
 
                             newTrackables.Add(trackable);
 
+                            heldLock?.Dispose();
+                            heldLock = MyGridAccessSynchronizer.AcquireLocks(newTrackables.Select(t => t.Grid));
+
                             // register it for scanning by trackers once its ancestry is assigned
                             trackablesToScan?.Add(trackable);
 
@@ -929,6 +994,8 @@ namespace TorchPlugin
                     tracker.TryRegisterNewTrackable(trackable);
 
             Plugin.Instance.Logger.Info("Connector structure finalized - registration END");
+
+            heldLock?.Dispose();
         }
 
         /// <summary>

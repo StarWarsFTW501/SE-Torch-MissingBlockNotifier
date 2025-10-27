@@ -18,12 +18,12 @@ namespace TorchPlugin
         protected int _containedCount;
         public int ContainedCount => _containedCount;
 
-        void IncreaseContainedCount(int byAmount)
+        protected void IncreaseContainedCount(int byAmount)
         {
             _containedCount += byAmount;
             Parent?.IncreaseContainedCount(byAmount);
         }
-        void DecreaseContainedCount(int byAmount)
+        protected void DecreaseContainedCount(int byAmount)
         {
             _containedCount -= byAmount;
             Parent?.DecreaseContainedCount(byAmount);
@@ -156,9 +156,8 @@ namespace TorchPlugin
         /// <summary>
         /// Destroys all ancestry links in the hierarchy below this <see cref="MyTrackable"/>. Does not take care of references to this <see cref="MyTrackable"/> from above in the hierarchy!
         /// </summary>
-        public void RazeTree()
+        public virtual void RazeTree()
         {
-            DecreaseContainedCount(Children.Sum(c => c.ContainedCount));
             foreach (var child in Children)
                 child.RazeTree();
             Children.Clear();
@@ -212,11 +211,6 @@ namespace TorchPlugin
             return new MyTrackable_Grid[] { this };
         }
 
-        /// <summary>
-        /// If marked for removal, kills self and all descendants, otherwise kills all descendants marked for removal, and if all descendants are removed, kills self as well. This includes removal from parent, if any exists. Returns whether this <see cref="MyTrackable"/> was removed.
-        /// </summary>
-        /// <param name="killedGridIds">Optional list to populate with IDs of killed <see cref="MyTrackable_Grid"/>s.</param>
-        /// <returns>Whether this <see cref="MyTrackable"/> killed itself and should be removed.</returns>
         public override bool ExecuteRemoval(List<long> killedGridIds = null)
         {
             if (MarkedForRemoval)
@@ -228,6 +222,10 @@ namespace TorchPlugin
                 return true;
             }
             return false;
+        }
+        public override void RazeTree()
+        {
+            DecreaseContainedCount(1);
         }
     }
     /// <summary>
