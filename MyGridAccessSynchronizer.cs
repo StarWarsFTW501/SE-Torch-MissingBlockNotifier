@@ -24,11 +24,20 @@ namespace TorchPlugin
         {
             lock (_lock)
             {
+                Plugin.Instance.Logger.Info($"Thread {Thread.CurrentThread.ManagedThreadId} is requesting locks for grids: {string.Join(", ", grids.Select(g => g.EntityId))} - method: {MyPatchUtilities.GetMethodCaller()}");
+
                 var newLock = new MyGridAccessLock(grids);
+
+                bool notified = false;
 
                 // only allow creation of locks that do not conflict with existing locks, unless the existing lock is held by the current thread
                 while (_activeLocks.Any(activeLock => activeLock.AffectedGrids.Intersect(newLock.AffectedGrids).Any() && !activeLock.IsHeldByCurrentThread()))
+                {
+                    if (!notified)
+                        Plugin.Instance.Logger.Warning($"Thread {Thread.CurrentThread.ManagedThreadId} is spinning on lock acquisition for grids: {string.Join(", ", grids.Select(g => g.EntityId))}");
+                    notified = true;
                     Monitor.Wait(_lock, 8);
+                }
 
                 _activeLocks.Add(newLock);
 
@@ -53,6 +62,8 @@ namespace TorchPlugin
         {
             lock (_lock)
             {
+                Plugin.Instance.Logger.Info($"Thread {Thread.CurrentThread.ManagedThreadId} is releasing locks for grids: {string.Join(", ", gridLock.AffectedGrids)}");
+
                 _activeLocks.Remove(gridLock);
                 gridLock.Dispose();
             }

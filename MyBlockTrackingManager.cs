@@ -837,6 +837,8 @@ namespace TorchPlugin
                 return;
             }
 
+            Plugin.Instance.Logger.Info($"Finalizing initialization of {_gridsWaitingForRegister.Count} grid trackables on thread {Thread.CurrentThread.ManagedThreadId}...");
+
             var toScan = new List<MyTrackable_Grid>();
 
             var jobs = new ThreadLocal<List<MyBlockTracker.ScanJob>>();
@@ -848,9 +850,9 @@ namespace TorchPlugin
                 {
                     FinalizeInitForGridTrackable(kvp.Value, toScan);
 
-                    using (MyGridAccessSynchronizer.AcquireLocks(toScan.Select(t => t.Grid)))
+                    Parallel.ForEach(toScan, grid =>
                     {
-                        Parallel.ForEach(toScan, grid =>
+                        using (MyGridAccessSynchronizer.AcquireLocks(grid.Grid))
                         {
                             if (_blocksWaitingForRegister.TryGetValue(kvp.Key, out var blocks))
                             {
@@ -871,8 +873,8 @@ namespace TorchPlugin
                             }
                             ScanGridWithJobs(grid.Grid, jobs.Value);
                             jobs.Value.Clear();
-                        });
-                    }
+                        }
+                    });
 
                     toScan.Clear();
                 }

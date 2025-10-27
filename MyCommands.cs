@@ -77,7 +77,8 @@ namespace TorchPlugin
             foreach (var prop in Plugin.Instance.Config.ChangedProperties)
                 sb.Append($" {prop},");
             Respond(sb.ToString().TrimEnd(','));
-            Plugin.Instance.GetConfigApplicator(out _, out bool typeProblems)();
+            var applicator = Plugin.Instance.GetConfigApplicator(out _, out bool typeProblems);
+            Plugin.Instance.RegisterDelayedAction(applicator, 1);
             if (typeProblems)
                 Respond("Warning: One or more block definitions could not be parsed. Check the log for specifics.");
             Respond("Configuration applied.");
@@ -92,8 +93,7 @@ namespace TorchPlugin
                 return;
             }
             Respond("Reloading tracking data for all trackable entities on the server...");
-            Plugin.Instance.TrackingManager.LoadConfig();
-            Respond("Tracking data reloaded.");
+            Plugin.Instance.RegisterDelayedAction(() => Plugin.Instance.TrackingManager.LoadConfig(), 1);
         }
         [Command("notifier start", "Starts the tracking manager and loads tracking data.")]
         [Permission(MyPromoteLevel.Admin)]

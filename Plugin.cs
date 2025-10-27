@@ -2,6 +2,7 @@
 using Sandbox.Game;
 using Sandbox.Game.World;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -25,7 +26,10 @@ namespace TorchPlugin
     public class Plugin : TorchPluginBase, IWpfPlugin
     {
         // TODO:
-        // - Fix crash when splitting grid (for some reason there is a problem with creation of proper ancestry structure - some of the proxies involved after creation of CONSTRUCT throw on name retrieval)
+        // - Fix lock acquisition failure when adding blocks (apparently we acquire locks for grid ID 0 somehow?)
+        // - Fix AddBlock crash - blocks are being added while another thread has registered the grid in the grid dict but before its ancestry is constructed (solution: never release lock, add option to "add" a lock to an existing instance)
+
+        // X- Fix crash when splitting grid (for some reason there is a problem with creation of proper ancestry structure - some of the proxies involved after creation of CONSTRUCT throw on name retrieval)
 
 
         // X- Fix crash when deleting multi-grid proxy - appears to be caused by mechanical disconnect being called after the grid is already removed from the world (ignore unregister of non-existent grid?)
@@ -68,10 +72,24 @@ namespace TorchPlugin
         internal MyBlockTrackingManager TrackingManager { get; private set; }
 
         internal long Tick { get; private set; } = 0;
-        Dictionary<long, Action> _delayedActions = new Dictionary<long, Action>();
+        ConcurrentDictionary<long, Action> _delayedActions = new ConcurrentDictionary<long, Action>();
 
-        internal void RegisterDelayedAction(Action action, long delayTicks)
+        /// <summary>
+        /// Registers an action to be executed on the simulation thread after a delay measured in ticks.
+        /// </summary>
+        /// <param name="action">The action to execute.</param>
+        /// <param name="delayTicks">The delay (ticks) to execute the action after. Default = 1. If left default while the session is not running, executes immediately.</param>
+        /// <exception cref="InvalidOperationException">Thrown if attempting to register a delayed action while the session is not running and <paramref name="delayTicks"/> is not 1.</exception>"
+        internal void RegisterDelayedAction(Action action, long delayTicks = 1)
         {
+            if (Torch.CurrentSession == null || Torch.CurrentSession.State != TorchSessionState.Loaded)
+            {
+                if (delayTicks == 1)
+                    action?.Invoke();
+                else
+                    throw new InvalidOperationException("Cannot register delayed actions while the session is not running!");
+                return;
+            }
             long executeTick = Tick + delayTicks;
             if (!_delayedActions.ContainsKey(executeTick))
                 _delayedActions[executeTick] = action;
@@ -212,8 +230,8 @@ namespace TorchPlugin
                     {
                         if (Config.Enabled) TrackingManager.Start();
                         else TrackingManager.Stop();
-                        return; // a change to the enabled state either fully boots everything up or fully shuts everything down
                     };
+                    break; // a change to the enabled state either fully boots everything up or fully shuts everything down
                 }
                 else if (change == nameof(Config.TimerSeconds))
                 {

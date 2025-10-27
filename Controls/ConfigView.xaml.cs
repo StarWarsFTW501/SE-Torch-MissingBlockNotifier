@@ -44,7 +44,7 @@ namespace TorchPlugin
                 if (result != MessageBoxResult.Yes)
                     return;
             }
-            applicator();
+            Plugin.Instance.RegisterDelayedAction(applicator, 1);
         }
 
         void ManageFired() => Dialog.CreateModalBlocking(Plugin.Instance.GetGroupManagerControl(), Window.GetWindow(this));
