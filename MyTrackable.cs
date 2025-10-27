@@ -177,7 +177,7 @@ namespace TorchPlugin
             int maxSize = 0;
             foreach (var grid in GetAllLeafProxies())
             {
-                if (grid.Grid.BlocksCount > maxSize)
+                if (grid.Grid.BlocksCount >= maxSize)
                 {
                     maxSize = grid.Grid.BlocksCount;
                     largestGrid = grid.Grid;

@@ -280,7 +280,8 @@ namespace TorchPlugin
             MyTrackable trackable = new MyTrackable_Grid(grid);
             _trackablesByGrid[grid.EntityId] = (MyTrackable_Grid)trackable;
 
-            ConstructAncestryToLevel(ref trackable, MyTrackableType.CONNECTOR_STRUCTURE);
+            var temp = trackable;
+            ConstructAncestryToLevel(ref temp, MyTrackableType.CONNECTOR_STRUCTURE);
 
             foreach (var tracker in _trackers.Values)
                 tracker.RegisterNewTrackable(trackable);
@@ -985,8 +986,7 @@ namespace TorchPlugin
                 {
                     Plugin.Instance.Logger.Info($"Ancestry level {i} for trackable not present - constructing...");
                     FinalizeParent(ref parent, new[] { trackable }, i);
-                    Plugin.Instance.Logger.Info($"Initialized parent ({i}) of {parent.Children.Count} children for trackable ({trackable.TrackableType}) of {trackable.Children.Count} children");
-                    Plugin.Instance.Logger.Info($"Constructed ancestry level {i} for trackable 'placeholder' - new parent is '{parent.GetDisplayName()}' ({parent.TrackableType})");
+                    Plugin.Instance.Logger.Info($"Constructed ancestry level {i} for trackable '{trackable.GetDisplayName()}' - new parent is '{parent.GetDisplayName()}' ({parent.TrackableType})");
                 }
                 else
                 {
